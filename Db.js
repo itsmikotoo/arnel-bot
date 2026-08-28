@@ -1,45 +1,45 @@
 // db.js
-// Nyimpen histori percakapan pakai SQLite biar Arnel "inget" konteks sebelumnya.
+// Nyimpen histori percakapan pakai file JSON biasa (gak perlu native compile,
+// cocok buat volume chat personal yang kecil).
 
-const Database = require("better-sqlite3");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
 // DATA_DIR menunjuk ke folder persistent volume di Northflank (default: ./data untuk lokal)
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new Database(path.join(DATA_DIR, "chat_history.db"));
+const DB_FILE = path.join(DATA_DIR, "chat_history.json");
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id TEXT NOT NULL,
-    role TEXT NOT NULL,        -- 'user' atau 'assistant'
-    content TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-`);
+function loadAll() {
+  if (!fs.existsSync(DB_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
 
-const insertStmt = db.prepare(
-  `INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)`
-);
-
-const historyStmt = db.prepare(
-  `SELECT role, content FROM messages
-   WHERE chat_id = ?
-   ORDER BY id DESC
-   LIMIT ?`
-);
+function saveAll(data) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
 
 function saveMessage(chatId, role, content) {
-  insertStmt.run(chatId, role, content, Date.now());
+  const data = loadAll();
+  if (!data[chatId]) data[chatId] = [];
+  data[chatId].push({ role, content, created_at: Date.now() });
+  // Biar file gak membengkak, simpan maksimal 200 pesan terakhir per chat
+  if (data[chatId].length > 200) {
+    data[chatId] = data[chatId].slice(-200);
+  }
+  saveAll(data);
 }
 
 // Ambil N pesan terakhir, dikembalikan urut dari lama ke baru
 function getHistory(chatId, limit = 20) {
-  const rows = historyStmt.all(chatId, limit);
-  return rows.reverse();
+  const data = loadAll();
+  const messages = data[chatId] || [];
+  return messages.slice(-limit);
 }
 
 module.exports = { saveMessage, getHistory };
