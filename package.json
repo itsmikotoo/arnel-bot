@@ -1,0 +1,17 @@
+{
+  "name": "arnel-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp chatbot dengan persona Arnel Latasha",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0",
+    "@google/generative-ai": "^0.21.0",
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^16.4.5"
+  }
+}
