@@ -39,7 +39,8 @@ const PROACTIVE_MIN_GAP_MS = 90 * 60 * 1000;
 const PROACTIVE_STATE_FILE = path.join(DATA_DIR, "proactive_state.json");
 const MAX_HISTORY = 20;
 const MESSAGE_DEBOUNCE_MS = Math.max(500, Number(process.env.MESSAGE_DEBOUNCE_MS || 3500));
-const MAX_REPLY_BUBBLES = Math.max(1, Number(process.env.MAX_REPLY_BUBBLES || 5));
+const MAX_REPLY_BUBBLES = Math.max(1, Number(process.env.MAX_REPLY_BUBBLES || 6));
+const REPLY_QUOTE_CHANCE = Math.min(1, Math.max(0, Number(process.env.REPLY_QUOTE_CHANCE || 0.28)));
 const logger = pino({ level: process.env.LOG_LEVEL || "silent" });
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -101,6 +102,25 @@ function getText(message) {
     content?.videoMessage?.caption ||
     ""
   ).trim();
+}
+
+function getMessageContext(message) {
+  const content = message?.message || {};
+  const contextInfo =
+    content.extendedTextMessage?.contextInfo ||
+    content.imageMessage?.contextInfo ||
+    content.videoMessage?.contextInfo ||
+    content.stickerMessage?.contextInfo ||
+    {};
+
+  const hints = [];
+  if (contextInfo.isForwarded || contextInfo.forwardingScore) {
+    hints.push("[ini pesan yang diteruskan dari chat lain]");
+  }
+  if (contextInfo.stanzaId) {
+    hints.push("[ini adalah balasan ke chat sebelumnya]");
+  }
+  return hints.join("\n");
 }
 
 function phoneFromJid(jid = "") {
@@ -261,7 +281,7 @@ function getStickerReply(stickerMessage) {
 async function createProactiveMessage(chatId, reason) {
   return askGemini(
     chatId,
-    `Mulai percakapan duluan sekarang. Alasannya ${reason}. Tulis hanya chat pembuka Arnel yang sangat pendek dan natural. Jangan menjelaskan bahwa ini pesan terjadwal.`,
+    `Mulai percakapan duluan sekarang. Alasannya ${reason}. Buat pembuka Arnel yang natural dan sesuai mood. Biasanya satu bubble pendek, tetapi boleh 2 atau 3 bubble kalau memang ada hal kecil yang ingin diceritakan. Jangan menjelaskan bahwa ini pesan terjadwal.`,
   );
 }
 
@@ -367,6 +387,12 @@ function splitReply(reply) {
     .slice(0, MAX_REPLY_BUBBLES);
 }
 
+function shouldReplyWithQuote(message, text, parts) {
+  if (!message?.key || !parts.length) return false;
+  const looksWorthQuoting = parts.length > 1 || text.length > 35;
+  return looksWorthQuoting && Math.random() < REPLY_QUOTE_CHANCE;
+}
+
 async function generateAndSendReply(message, chatId, text, imageMessage, stickerMessage) {
   recordInteraction(chatId);
   let reply;
@@ -390,10 +416,15 @@ async function generateAndSendReply(message, chatId, text, imageMessage, sticker
   saveMessage(chatId, "assistant", reply);
 
   const parts = splitReply(reply);
-  for (const part of parts) {
+  const quoteFirstReply = shouldReplyWithQuote(message, text, parts);
+  for (const [index, part] of parts.entries()) {
     await activeSocket.sendPresenceUpdate("composing", chatId);
     await sleep(Math.min(900 + part.length * 25, 3500));
-    await activeSocket.sendMessage(chatId, { text: part });
+    await activeSocket.sendMessage(
+      chatId,
+      { text: part },
+      index === 0 && quoteFirstReply ? { quoted: message } : undefined,
+    );
     if (parts.length > 1) await sleep(350 + Math.random() * 450);
   }
   await activeSocket.sendPresenceUpdate("paused", chatId);
@@ -489,7 +520,9 @@ async function startWhatsApp() {
           const chatId = message.key.remoteJid;
           const imageMessage = message.message.imageMessage;
           const stickerMessage = message.message.stickerMessage;
-          const text = getText(message);
+          const messageText = getText(message);
+          const contextHint = getMessageContext(message);
+          const text = [messageText, contextHint].filter(Boolean).join("\n");
           if (!chatId || (!text && !imageMessage && !stickerMessage)) continue;
 
           console.log(
@@ -498,7 +531,7 @@ async function startWhatsApp() {
           touchActivity();
 
           const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
-          const normalizedText = text.trim();
+          const normalizedText = messageText.trim();
 
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!good") {
             const exchange = getLastExchange(chatId);
