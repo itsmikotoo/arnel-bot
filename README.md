@@ -57,3 +57,17 @@ arnel: gw inget
 Contoh latihan disimpan di `data/training_examples.json`, sedangkan tingkat kedekatan dan mood
 disimpan di `data/relationship_state.json`. Keduanya tidak masuk Git karena folder `data`
 diabaikan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
+
+## Memori pribadi
+
+Pemilik bot yang nomornya ada di `ALLOWED_NUMBER` dapat menyimpan memori secara sengaja:
+
+```text
+!ingat suka cookies
+!ingat lagi nyiapin ujian ekonomi
+!ingatan
+```
+
+`!ingat` menyimpan catatan di `data/memories.json`; `!ingatan` menampilkan hingga sepuluh
+catatan terakhir. Memori dikirim ke Gemini hanya untuk membantu balasan dan pesan inisiatif yang
+relevan. Jangan simpan kata sandi, token, alamat lengkap, atau informasi sangat sensitif.
