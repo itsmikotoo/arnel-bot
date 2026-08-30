@@ -38,6 +38,8 @@ const PROACTIVE_DAILY_MAX = Number(process.env.PROACTIVE_DAILY_MAX || 5);
 const PROACTIVE_MIN_GAP_MS = 90 * 60 * 1000;
 const PROACTIVE_STATE_FILE = path.join(DATA_DIR, "proactive_state.json");
 const MAX_HISTORY = 20;
+const MESSAGE_DEBOUNCE_MS = Math.max(500, Number(process.env.MESSAGE_DEBOUNCE_MS || 3500));
+const MAX_REPLY_BUBBLES = Math.max(1, Number(process.env.MAX_REPLY_BUBBLES || 5));
 const logger = pino({ level: process.env.LOG_LEVEL || "silent" });
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -52,6 +54,8 @@ let proactiveTimer;
 let starting = false;
 let activeSocket;
 let targetJid;
+const pendingTextMessages = new Map();
+const chatQueues = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -320,6 +324,84 @@ function startProactiveScheduler(sock) {
   console.log(`Chat duluan aktif. Jadwal: ${PROACTIVE_TIMES.join(", ")}; maksimal ${PROACTIVE_DAILY_MAX}/hari.`);
 }
 
+async function enqueueChat(chatId, task) {
+  const previous = chatQueues.get(chatId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  chatQueues.set(chatId, current);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (chatQueues.get(chatId) === current) chatQueues.delete(chatId);
+  }
+}
+
+function splitReply(reply) {
+  return reply
+    .split("||")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, MAX_REPLY_BUBBLES);
+}
+
+async function generateAndSendReply(message, chatId, text, imageMessage) {
+  recordInteraction(chatId);
+  let reply;
+
+  if (imageMessage) {
+    const result = await understandImage(chatId, imageMessage);
+    reply = result.reply;
+    await activeSocket.sendMessage(chatId, {
+      react: { text: result.reaction, key: message.key },
+    });
+  } else {
+    reply = await askGemini(chatId, text);
+  }
+
+  saveMessage(chatId, "user", imageMessage ? `[foto] ${text || "tanpa caption"}` : text);
+  saveMessage(chatId, "assistant", reply);
+
+  const parts = splitReply(reply);
+  for (const part of parts) {
+    await activeSocket.sendPresenceUpdate("composing", chatId);
+    await sleep(Math.min(900 + part.length * 25, 3500));
+    await activeSocket.sendMessage(chatId, { text: part });
+    if (parts.length > 1) await sleep(350 + Math.random() * 450);
+  }
+  await activeSocket.sendPresenceUpdate("paused", chatId);
+}
+
+function queueTextMessage(message, chatId, text) {
+  const pending = pendingTextMessages.get(chatId) || {
+    texts: [],
+    message,
+    timer: undefined,
+  };
+
+  pending.texts.push(text);
+  pending.message = message;
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => {
+    pendingTextMessages.delete(chatId);
+    const combinedText = pending.texts.join("\n");
+    console.log(
+      pending.texts.length > 1
+        ? `[gabung] ${chatId}: ${pending.texts.length} pesan`
+        : `[proses] ${chatId}: ${combinedText}`,
+    );
+    enqueueChat(chatId, () =>
+      generateAndSendReply(pending.message, chatId, combinedText, undefined),
+    ).catch((error) => console.error("Gagal memproses pesan:", error.message));
+  }, MESSAGE_DEBOUNCE_MS);
+
+  pendingTextMessages.set(chatId, pending);
+}
+
 function scheduleReconnect(delay = 3000) {
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => startWhatsApp(), delay);
@@ -424,29 +506,13 @@ async function startWhatsApp() {
             continue;
           }
 
-          recordInteraction(chatId);
-          let reply;
-
           if (imageMessage) {
-            const result = await understandImage(chatId, imageMessage);
-            reply = result.reply;
-            await activeSocket.sendMessage(chatId, {
-              react: { text: result.reaction, key: message.key },
-            });
+            await enqueueChat(chatId, () =>
+              generateAndSendReply(message, chatId, text, imageMessage),
+            );
           } else {
-            reply = await askGemini(chatId, text);
+            queueTextMessage(message, chatId, text);
           }
-
-          saveMessage(chatId, "user", imageMessage ? `[foto] ${text || "tanpa caption"}` : text);
-          saveMessage(chatId, "assistant", reply);
-
-          const parts = reply.split("||").map((part) => part.trim()).filter(Boolean);
-          for (const part of parts) {
-            await activeSocket.sendPresenceUpdate("composing", chatId);
-            await sleep(Math.min(900 + part.length * 25, 3500));
-            await activeSocket.sendMessage(chatId, { text: part });
-          }
-          await activeSocket.sendPresenceUpdate("paused", chatId);
         } catch (error) {
           console.error("Gagal memproses pesan:", error.message);
         }
@@ -463,6 +529,7 @@ async function startWhatsApp() {
 process.on("SIGINT", () => {
   clearTimeout(reconnectTimer);
   clearInterval(proactiveTimer);
+  for (const pending of pendingTextMessages.values()) clearTimeout(pending.timer);
   activeSocket?.end?.(new Error("Bot dihentikan"));
   process.exit(0);
 });
