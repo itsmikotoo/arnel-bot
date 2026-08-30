@@ -5,6 +5,7 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const DB_FILE = path.join(DATA_DIR, "chat_history.json");
 const TRAINING_FILE = path.join(DATA_DIR, "training_examples.json");
 const RELATIONSHIP_FILE = path.join(DATA_DIR, "relationship_state.json");
+const MEMORY_FILE = path.join(DATA_DIR, "memories.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadJson(file, fallback) {
@@ -200,4 +201,41 @@ export function getRelationshipContext(chatId) {
     `jumlah interaksi tersimpan: ${state.interactions}`,
     "sesuaikan keakraban secara bertahap jangan mendadak posesif atau terlalu romantis",
   ].join("\n");
+}
+
+
+export function saveMemory(chatId, content) {
+  const data = loadJson(MEMORY_FILE, {});
+  data[chatId] ||= [];
+  const cleanContent = content.trim().replace(/\s+/g, " ");
+  const normalized = cleanContent.toLowerCase();
+  const existing = data[chatId].find((item) => item.content.toLowerCase() === normalized);
+
+  if (existing) {
+    existing.updatedAt = Date.now();
+    existing.uses = (existing.uses || 1) + 1;
+  } else {
+    data[chatId].push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      content: cleanContent,
+      uses: 1,
+      createdAt: Date.now(),
+    });
+    data[chatId] = data[chatId].slice(-60);
+  }
+
+  saveJson(MEMORY_FILE, data);
+}
+
+export function getRelevantMemories(chatId, query = "", limit = 6) {
+  const memories = loadJson(MEMORY_FILE, {})[chatId] || [];
+  const queryWords = words(query);
+
+  return memories
+    .map((item) => {
+      const overlap = words(item.content).filter((word) => queryWords.includes(word)).length;
+      return { ...item, score: overlap * 3 + Math.min(item.uses || 0, 3) * 0.2 };
+    })
+    .sort((a, b) => b.score - a.score || (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+    .slice(0, limit);
 }
