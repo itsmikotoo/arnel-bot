@@ -15,6 +15,7 @@ import { SYSTEM_PROMPT } from "./persona.js";
 import {
   getHistory,
   getLastExchange,
+  getRelevantMemories,
   getRelationshipContext,
   getRelevantExamples,
   recordFeedback,
@@ -159,7 +160,16 @@ function cleanHistory(history) {
 
 function buildSystemInstruction(chatId, query = "") {
   const relationship = getRelationshipContext(chatId);
+  const memories = getRelevantMemories(chatId, query, 6);
   const examples = getRelevantExamples(chatId, query, 6);
+  const memoryContext = memories.length
+    ? [
+        "Hal yang Arnel ingat tentang lawan bicara:",
+        ...memories.map((item) => `- ${item.content}`),
+        "Gunakan hanya bila relevan dan natural. Jangan bilang bahwa ini disimpan sebagai memori.",
+      ].join("\n")
+    : "Belum ada memori khusus.";
+
   const learnedExamples = examples.length
     ? [
         "Contoh jawaban yang sudah disukai atau dikoreksi pemilik:",
@@ -173,6 +183,8 @@ function buildSystemInstruction(chatId, query = "") {
     "",
     "Konteks perkembangan hubungan:",
     relationship,
+    "",
+    memoryContext,
     "",
     learnedExamples,
   ].join("\n");
@@ -532,6 +544,27 @@ async function startWhatsApp() {
 
           const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
           const normalizedText = messageText.trim();
+
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!ingatan") {
+            const memories = getRelevantMemories(chatId, "", 10);
+            const output = memories.length
+              ? ["yang gw inget", ...memories.map((item, index) => `${index + 1}. ${item.content}`)].join("\n")
+              : "belom ada yang gw simpen";
+            await activeSocket.sendMessage(chatId, { text: output });
+            continue;
+          }
+
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!ingat")) {
+            const memory = normalizedText.replace(/^!ingat\s*:?[\s]*/i, "").trim();
+            if (!memory) {
+              await activeSocket.sendMessage(chatId, { text: "tulis !ingat terus hal yang mau gw inget" });
+              continue;
+            }
+            saveMemory(chatId, memory);
+            await activeSocket.sendMessage(chatId, { text: "okeh gw simpen" });
+            console.log(`[memory] ${chatId}: ${memory}`);
+            continue;
+          }
 
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!good") {
             const exchange = getLastExchange(chatId);
