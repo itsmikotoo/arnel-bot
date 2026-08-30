@@ -18,6 +18,14 @@ const AUTH_DIR = path.join(DATA_DIR, "baileys_auth");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const CONNECTION_ONLY = process.env.CONNECTION_ONLY === "true";
 const ALLOWED_NUMBER = (process.env.ALLOWED_NUMBER || "").replace(/\D/g, "");
+const PROACTIVE_ENABLED = process.env.PROACTIVE_ENABLED === "true";
+const PROACTIVE_TIMES = (process.env.PROACTIVE_TIMES || "08:00,12:30,19:30")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const PROACTIVE_DAILY_MAX = Number(process.env.PROACTIVE_DAILY_MAX || 5);
+const PROACTIVE_MIN_GAP_MS = 90 * 60 * 1000;
+const PROACTIVE_STATE_FILE = path.join(DATA_DIR, "proactive_state.json");
 const MAX_HISTORY = 20;
 const logger = pino({ level: process.env.LOG_LEVEL || "silent" });
 
@@ -29,10 +37,45 @@ if (!CONNECTION_ONLY && !process.env.GEMINI_API_KEY) {
 }
 
 let reconnectTimer;
+let proactiveTimer;
 let starting = false;
 let activeSocket;
+let targetJid;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function readProactiveState() {
+  try {
+    return JSON.parse(fs.readFileSync(PROACTIVE_STATE_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeProactiveState(state) {
+  const tempFile = `${PROACTIVE_STATE_FILE}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(state, null, 2));
+  fs.renameSync(tempFile, PROACTIVE_STATE_FILE);
+}
+
+function randomHours(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function todayKey(date = new Date()) {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+function localTime(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function touchActivity() {
+  const state = readProactiveState();
+  state.lastActivityAt = Date.now();
+  state.nextIdleAt = Date.now() + randomHours(2, 4) * 60 * 60 * 1000;
+  writeProactiveState(state);
+}
 
 function getText(message) {
   const content = message?.message;
@@ -117,6 +160,90 @@ async function askGemini(chatId, text) {
   return reply;
 }
 
+async function createProactiveMessage(chatId, reason) {
+  return askGemini(
+    chatId,
+    `Mulai percakapan duluan sekarang. Alasannya ${reason}. Tulis hanya chat pembuka Arnel yang sangat pendek dan natural. Jangan menjelaskan bahwa ini pesan terjadwal.`,
+  );
+}
+
+async function resolveTargetJid(sock) {
+  if (targetJid) return targetJid;
+  if (!ALLOWED_NUMBER) throw new Error("ALLOWED_NUMBER wajib diisi untuk chat duluan");
+  const [result] = await sock.onWhatsApp(`${ALLOWED_NUMBER}@s.whatsapp.net`);
+  if (!result?.exists) throw new Error("ALLOWED_NUMBER tidak ditemukan di WhatsApp");
+  targetJid = result.jid;
+  return targetJid;
+}
+
+async function runProactiveCheck(sock) {
+  if (!PROACTIVE_ENABLED || CONNECTION_ONLY || !sock?.user) return;
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const day = todayKey(now);
+  const state = readProactiveState();
+
+  if (state.day !== day) {
+    state.day = day;
+    state.sentToday = 0;
+    state.sentFixedKeys = [];
+  }
+  state.lastActivityAt ||= nowMs;
+  state.nextIdleAt ||= nowMs + randomHours(2, 4) * 60 * 60 * 1000;
+  state.nextRandomAt ||= nowMs + randomHours(3, 6) * 60 * 60 * 1000;
+  state.sentFixedKeys ||= [];
+
+  const currentTime = localTime(now);
+  const fixedKey = `${day}-${currentTime}`;
+  const fixedDue = PROACTIVE_TIMES.includes(currentTime) && !state.sentFixedKeys.includes(fixedKey);
+  const idleDue = nowMs >= state.nextIdleAt;
+  const randomDue = nowMs >= state.nextRandomAt;
+  const enoughGap = nowMs - (state.lastProactiveAt || 0) >= PROACTIVE_MIN_GAP_MS;
+  const belowLimit = (state.sentToday || 0) < PROACTIVE_DAILY_MAX;
+
+  if (!(fixedDue || idleDue || randomDue) || !enoughGap || !belowLimit) {
+    writeProactiveState(state);
+    return;
+  }
+
+  const reason = fixedDue ? `jadwal ${currentTime}` : idleDue ? "sudah lama tidak ada chat" : "waktu acak";
+  const jid = await resolveTargetJid(sock);
+  const message = await createProactiveMessage(jid, reason);
+  const parts = message.split("||").map((part) => part.trim()).filter(Boolean).slice(0, 2);
+
+  for (const part of parts) {
+    await sock.sendMessage(jid, { text: part });
+    await sleep(500);
+  }
+
+  saveMessage(jid, "assistant", message);
+  state.lastProactiveAt = nowMs;
+  state.lastActivityAt = nowMs;
+  state.sentToday = (state.sentToday || 0) + 1;
+  state.nextIdleAt = nowMs + randomHours(2, 4) * 60 * 60 * 1000;
+  state.nextRandomAt = nowMs + randomHours(3, 6) * 60 * 60 * 1000;
+  if (fixedDue) state.sentFixedKeys.push(fixedKey);
+  writeProactiveState(state);
+  console.log(`[inisiatif] ${jid}: ${message}`);
+}
+
+function startProactiveScheduler(sock) {
+  clearInterval(proactiveTimer);
+  if (!PROACTIVE_ENABLED || CONNECTION_ONLY) return;
+
+  const state = readProactiveState();
+  state.lastActivityAt ||= Date.now();
+  state.nextIdleAt ||= Date.now() + randomHours(2, 4) * 60 * 60 * 1000;
+  state.nextRandomAt ||= Date.now() + randomHours(3, 6) * 60 * 60 * 1000;
+  writeProactiveState(state);
+
+  proactiveTimer = setInterval(() => {
+    runProactiveCheck(sock).catch((error) => console.error("Gagal chat duluan:", error.message));
+  }, 60 * 1000);
+  console.log(`Chat duluan aktif. Jadwal: ${PROACTIVE_TIMES.join(", ")}; maksimal ${PROACTIVE_DAILY_MAX}/hari.`);
+}
+
 function scheduleReconnect(delay = 3000) {
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => startWhatsApp(), delay);
@@ -152,6 +279,7 @@ async function startWhatsApp() {
       if (connection === "open") {
         console.log("WhatsApp tersambung. Arnel online.");
         console.log(CONNECTION_ONLY ? "Mode tes koneksi aktif, pesan tidak akan dibalas." : "Bot siap membalas pesan.");
+        startProactiveScheduler(activeSocket);
       }
 
       if (connection === "close") {
@@ -182,6 +310,7 @@ async function startWhatsApp() {
           if (!chatId || !text) continue;
 
           console.log(`[masuk] ${chatId}: ${text}`);
+          touchActivity();
           const oldHistory = getHistory(chatId, MAX_HISTORY);
           const reply = await askGemini(chatId, text);
           saveMessage(chatId, "user", text);
@@ -209,6 +338,7 @@ async function startWhatsApp() {
 
 process.on("SIGINT", () => {
   clearTimeout(reconnectTimer);
+  clearInterval(proactiveTimer);
   activeSocket?.end?.(new Error("Bot dihentikan"));
   process.exit(0);
 });
