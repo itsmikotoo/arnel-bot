@@ -15,7 +15,7 @@ import { getHistory, saveMessage } from "./db.js";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const AUTH_DIR = path.join(DATA_DIR, "baileys_auth");
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const CONNECTION_ONLY = process.env.CONNECTION_ONLY === "true";
 const ALLOWED_NUMBER = (process.env.ALLOWED_NUMBER || "").replace(/\D/g, "");
 const MAX_HISTORY = 20;
