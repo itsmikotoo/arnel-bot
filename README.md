@@ -20,3 +20,16 @@ Jika terminal menampilkan `WhatsApp tersambung`, hentikan dengan Ctrl+C, ubah me
 `CONNECTION_ONLY=false`, isi `GEMINI_API_KEY` serta `ALLOWED_NUMBER`, lalu jalankan lagi.
 
 Jangan upload `.env` atau folder `data` ke GitHub.
+
+## Chat duluan
+
+Aktifkan scheduler melalui `.env`:
+
+```env
+PROACTIVE_ENABLED=true
+PROACTIVE_TIMES=08:00,12:30,19:30
+PROACTIVE_DAILY_MAX=5
+```
+
+Bot juga akan memilih waktu acak dan mengirim pesan setelah percakapan sepi 2-4 jam.
+`ALLOWED_NUMBER` wajib diisi karena nomor tersebut menjadi tujuan chat inisiatif.
