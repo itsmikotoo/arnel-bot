@@ -240,6 +240,24 @@ async function understandImage(chatId, imageMessage) {
   return { reaction, reply };
 }
 
+function getStickerReply(stickerMessage) {
+  const staticReplies = [
+    "stiker apaan itu",
+    "wkwk apasih",
+    "ih ngirim ginian",
+    "aneh bgt stiker lu",
+    "paham paham",
+  ];
+  const animatedReplies = [
+    "stiker gerak apaan itu",
+    "wkwk rame amat",
+    "ih apasih itu",
+  ];
+  const replies = stickerMessage.isAnimated ? animatedReplies : staticReplies;
+  const seed = Number(stickerMessage.fileLength || 0) + Number(stickerMessage.height || 0);
+  return replies[seed % replies.length];
+}
+
 async function createProactiveMessage(chatId, reason) {
   return askGemini(
     chatId,
@@ -349,21 +367,26 @@ function splitReply(reply) {
     .slice(0, MAX_REPLY_BUBBLES);
 }
 
-async function generateAndSendReply(message, chatId, text, imageMessage) {
+async function generateAndSendReply(message, chatId, text, imageMessage, stickerMessage) {
   recordInteraction(chatId);
   let reply;
+  let userContent = text;
 
   if (imageMessage) {
     const result = await understandImage(chatId, imageMessage);
     reply = result.reply;
+    userContent = `[foto] ${text || "tanpa caption"}`;
     await activeSocket.sendMessage(chatId, {
       react: { text: result.reaction, key: message.key },
     });
+  } else if (stickerMessage) {
+    reply = getStickerReply(stickerMessage);
+    userContent = "[stiker]";
   } else {
     reply = await askGemini(chatId, text);
   }
 
-  saveMessage(chatId, "user", imageMessage ? `[foto] ${text || "tanpa caption"}` : text);
+  saveMessage(chatId, "user", userContent);
   saveMessage(chatId, "assistant", reply);
 
   const parts = splitReply(reply);
@@ -395,7 +418,7 @@ function queueTextMessage(message, chatId, text) {
         : `[proses] ${chatId}: ${combinedText}`,
     );
     enqueueChat(chatId, () =>
-      generateAndSendReply(pending.message, chatId, combinedText, undefined),
+      generateAndSendReply(pending.message, chatId, combinedText, undefined, undefined),
     ).catch((error) => console.error("Gagal memproses pesan:", error.message));
   }, MESSAGE_DEBOUNCE_MS);
 
@@ -465,16 +488,19 @@ async function startWhatsApp() {
           if (!message.message || message.key.fromMe || !isAllowed(message)) continue;
           const chatId = message.key.remoteJid;
           const imageMessage = message.message.imageMessage;
+          const stickerMessage = message.message.stickerMessage;
           const text = getText(message);
-          if (!chatId || (!text && !imageMessage)) continue;
+          if (!chatId || (!text && !imageMessage && !stickerMessage)) continue;
 
-          console.log(`[masuk] ${chatId}: ${imageMessage ? "[foto]" : text}`);
+          console.log(
+            `[masuk] ${chatId}: ${imageMessage ? "[foto]" : stickerMessage ? "[stiker]" : text}`,
+          );
           touchActivity();
 
           const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
           const normalizedText = text.trim();
 
-          if (!imageMessage && trainerAllowed && normalizedText.toLowerCase() === "!good") {
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!good") {
             const exchange = getLastExchange(chatId);
             if (!exchange) {
               await activeSocket.sendMessage(chatId, { text: "belom ada jawaban yang bisa dinilai" });
@@ -487,7 +513,7 @@ async function startWhatsApp() {
             continue;
           }
 
-          if (!imageMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!teach")) {
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!teach")) {
             const desiredReply = normalizedText.replace(/^!teach\s*:?[\s]*/i, "").trim();
             if (!desiredReply) {
               await activeSocket.sendMessage(chatId, { text: "tulis !teach terus jawaban yang lu mau" });
@@ -506,9 +532,9 @@ async function startWhatsApp() {
             continue;
           }
 
-          if (imageMessage) {
+          if (imageMessage || stickerMessage) {
             await enqueueChat(chatId, () =>
-              generateAndSendReply(message, chatId, text, imageMessage),
+              generateAndSendReply(message, chatId, text, imageMessage, stickerMessage),
             );
           } else {
             queueTextMessage(message, chatId, text);
