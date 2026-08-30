@@ -33,3 +33,8 @@ PROACTIVE_DAILY_MAX=5
 
 Bot juga akan memilih waktu acak dan mengirim pesan setelah percakapan sepi 2-4 jam.
 `ALLOWED_NUMBER` wajib diisi karena nomor tersebut menjadi tujuan chat inisiatif.
+
+## Foto
+
+Foto masuk hingga 5 MB dianalisis dengan Gemini. Arnel memberi satu reaction emoji
+dan membalas dengan teks pendek berdasarkan isi foto. Foto tanpa caption tetap diproses.
