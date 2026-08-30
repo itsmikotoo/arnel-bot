@@ -12,7 +12,17 @@ import makeWASocket, {
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import { SYSTEM_PROMPT } from "./persona.js";
-import { getHistory, saveMessage } from "./db.js";
+import {
+  getHistory,
+  getLastExchange,
+  getRelationshipContext,
+  getRelevantExamples,
+  recordFeedback,
+  recordInteraction,
+  replaceLastAssistant,
+  saveMessage,
+  saveTrainingExample,
+} from "./db.js";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const AUTH_DIR = path.join(DATA_DIR, "baileys_auth");
@@ -123,15 +133,37 @@ function cleanHistory(history) {
   return result;
 }
 
-async function requestGemini(chatId, userParts) {
+function buildSystemInstruction(chatId, query = "") {
+  const relationship = getRelationshipContext(chatId);
+  const examples = getRelevantExamples(chatId, query, 6);
+  const learnedExamples = examples.length
+    ? [
+        "Contoh jawaban yang sudah disukai atau dikoreksi pemilik:",
+        ...examples.map((item) => `user: ${item.input}\narnel: ${item.output}`),
+        "Ikuti pola dan nuansanya jika situasinya relevan jangan menyalin secara buta.",
+      ].join("\n")
+    : "Belum ada contoh hasil latihan yang relevan.";
+
+  return [
+    SYSTEM_PROMPT,
+    "",
+    "Konteks perkembangan hubungan:",
+    relationship,
+    "",
+    learnedExamples,
+  ].join("\n");
+}
+
+async function requestGemini(chatId, userParts, trainingQuery = "") {
   const history = cleanHistory(getHistory(chatId, MAX_HISTORY));
+  const systemInstruction = buildSystemInstruction(chatId, trainingQuery);
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        system_instruction: { parts: [{ text: systemInstruction }] },
         contents: [...history, { role: "user", parts: userParts }],
         generationConfig: {
           temperature: 1.1,
@@ -162,7 +194,7 @@ async function requestGemini(chatId, userParts) {
 }
 
 async function askGemini(chatId, text) {
-  return requestGemini(chatId, [{ text }]);
+  return requestGemini(chatId, [{ text }], text);
 }
 
 async function downloadImage(imageMessage) {
@@ -356,6 +388,43 @@ async function startWhatsApp() {
 
           console.log(`[masuk] ${chatId}: ${imageMessage ? "[foto]" : text}`);
           touchActivity();
+
+          const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
+          const normalizedText = text.trim();
+
+          if (!imageMessage && trainerAllowed && normalizedText.toLowerCase() === "!good") {
+            const exchange = getLastExchange(chatId);
+            if (!exchange) {
+              await activeSocket.sendMessage(chatId, { text: "belom ada jawaban yang bisa dinilai" });
+              continue;
+            }
+            saveTrainingExample(chatId, exchange.input, exchange.output, "good");
+            recordFeedback(chatId, "good");
+            await activeSocket.sendMessage(chatId, { text: "okeh gw inget yang ini" });
+            console.log(`[trainer] good: ${exchange.input} -> ${exchange.output}`);
+            continue;
+          }
+
+          if (!imageMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!teach")) {
+            const desiredReply = normalizedText.replace(/^!teach\s*:?[\s]*/i, "").trim();
+            if (!desiredReply) {
+              await activeSocket.sendMessage(chatId, { text: "tulis !teach terus jawaban yang lu mau" });
+              continue;
+            }
+            const exchange = getLastExchange(chatId);
+            if (!exchange) {
+              await activeSocket.sendMessage(chatId, { text: "belom ada jawaban yang bisa dikoreksi" });
+              continue;
+            }
+            saveTrainingExample(chatId, exchange.input, desiredReply, "teach");
+            replaceLastAssistant(chatId, desiredReply);
+            recordFeedback(chatId, "teach");
+            await activeSocket.sendMessage(chatId, { text: "nah gitu ya || gw inget" });
+            console.log(`[trainer] teach: ${exchange.input} -> ${desiredReply}`);
+            continue;
+          }
+
+          recordInteraction(chatId);
           let reply;
 
           if (imageMessage) {
