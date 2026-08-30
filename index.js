@@ -1,120 +1,206 @@
-// index.js
-// Bot utama: connect ke WhatsApp, terima pesan, panggil AI, kirim balasan bertahap.
+import "dotenv/config";
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import makeWASocket, {
+  Browsers,
+  DisconnectReason,
+  makeCacheableSignalKeyStore,
+  useMultiFileAuthState,
+} from "@whiskeysockets/baileys";
+import pino from "pino";
+import qrcode from "qrcode-terminal";
+import { SYSTEM_PROMPT } from "./persona.js";
+import { getHistory, saveMessage } from "./db.js";
 
-require("dotenv").config();
-const { Client, LocalAuth } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { SYSTEM_PROMPT } = require("./persona");
-const { saveMessage, getHistory } = require("./db");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
+const AUTH_DIR = path.join(DATA_DIR, "baileys_auth");
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const CONNECTION_ONLY = process.env.CONNECTION_ONLY === "true";
+const ALLOWED_NUMBER = (process.env.ALLOWED_NUMBER || "").replace(/\D/g, "");
+const MAX_HISTORY = 20;
+const logger = pino({ level: process.env.LOG_LEVEL || "silent" });
 
-// ---- Konfigurasi ----
-const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID || null;
-// Format ALLOWED_CHAT_ID: "628xxxxxxxxxx@c.us" (nomor kamu sendiri, pakai kode negara, tanpa +/spasi)
-// Kalau null, bot akan balas ke semua chat masuk (TIDAK disarankan untuk testing pertama).
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const MAX_HISTORY = 20; // jumlah pesan terakhir yang dikirim sebagai konteks ke AI
+if (!CONNECTION_ONLY && !process.env.GEMINI_API_KEY) {
+  console.error("GEMINI_API_KEY belum diisi di file .env");
+  process.exit(1);
+}
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
-  systemInstruction: SYSTEM_PROMPT,
-});
+let reconnectTimer;
+let starting = false;
+let activeSocket;
 
-// ---- Setup WhatsApp client ----
-// DATA_DIR menunjuk ke folder persistent volume di Northflank (default: ./data untuk lokal)
-const DATA_DIR = process.env.DATA_DIR || "./data";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: `${DATA_DIR}/.wwebjs_auth` }),
-  puppeteer: {
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // penting di container dengan RAM/shm terbatas
-      "--disable-gpu",
-    ],
-  },
-});
+function getText(message) {
+  const content = message?.message;
+  return (
+    content?.conversation ||
+    content?.extendedTextMessage?.text ||
+    content?.imageMessage?.caption ||
+    content?.videoMessage?.caption ||
+    ""
+  ).trim();
+}
 
-client.on("qr", (qr) => {
-  console.log("Scan QR code ini pakai WhatsApp di nomor bot:");
-  qrcode.generate(qr, { small: true });
-});
+function phoneFromJid(jid = "") {
+  return jid.split("@")[0].split(":")[0].replace(/\D/g, "");
+}
 
-client.on("ready", () => {
-  console.log("Bot siap! Arnel udah online.");
-});
+function isAllowed(message) {
+  const jid = message.key.remoteJid || "";
+  if (jid.endsWith("@g.us") || jid === "status@broadcast") return false;
+  if (!ALLOWED_NUMBER) return true;
 
-client.on("auth_failure", (msg) => {
-  console.error("Autentikasi gagal:", msg);
-});
+  const possibleJids = [
+    message.key.remoteJid,
+    message.key.remoteJidAlt,
+    message.key.participant,
+    message.key.participantAlt,
+  ].filter(Boolean);
 
-client.on("disconnected", (reason) => {
-  console.log("Terputus:", reason);
-});
+  return possibleJids.some((value) => phoneFromJid(value) === ALLOWED_NUMBER);
+}
 
-// ---- Handler pesan masuk ----
-client.on("message", async (msg) => {
-  try {
-    const chatId = msg.from;
-
-    // Filter: kalau ALLOWED_CHAT_ID diset, cuma respon ke chat itu
-    if (ALLOWED_CHAT_ID && chatId !== ALLOWED_CHAT_ID) {
-      return;
+function cleanHistory(history) {
+  const result = [];
+  for (const item of history) {
+    const role = item.role === "assistant" ? "model" : "user";
+    const previous = result.at(-1);
+    if (previous?.role === role) {
+      previous.parts[0].text += `\n${item.content}`;
+    } else {
+      result.push({ role, parts: [{ text: item.content }] });
     }
-
-    // Abaikan pesan dari grup (opsional, hapus baris ini kalau mau bot jalan di grup juga)
-    if (chatId.endsWith("@g.us")) return;
-
-    const userText = msg.body?.trim();
-    if (!userText) return;
-
-    console.log(`[masuk] ${chatId}: ${userText}`);
-
-    // Simpan pesan user ke histori
-    saveMessage(chatId, "user", userText);
-
-    // Ambil histori percakapan buat konteks
-    const history = getHistory(chatId, MAX_HISTORY);
-    // Gemini butuh histori dimulai dari role "user", dan format role "model" bukan "assistant"
-    const historyForAI = history
-      .map((h) => ({
-        role: h.role === "user" ? "user" : "model",
-        parts: [{ text: h.content }],
-      }))
-      .slice(0, -1); // pesan terakhir (yang barusan masuk) dikirim terpisah, bukan sebagai histori
-
-    // Tampilkan "typing..." biar lebih natural
-    const chat = await msg.getChat();
-    await chat.sendStateTyping();
-
-    // Panggil Gemini API
-    const chatSession = model.startChat({ history: historyForAI });
-    const result = await chatSession.sendMessage(userText);
-    const rawReply = result.response.text().trim();
-
-    // Simpan balasan penuh ke histori (biar konteks AI tetap utuh)
-    saveMessage(chatId, "assistant", rawReply);
-
-    // Pecah balasan jadi beberapa bubble pesan berdasarkan tanda "||"
-    const parts = rawReply
-      .split("||")
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-
-    for (const part of parts) {
-      // Delay biar kerasa natural, proporsional sama panjang teks
-      const delay = Math.min(1200 + part.length * 30, 4000);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      await chat.sendStateTyping();
-      await client.sendMessage(chatId, part);
-    }
-  } catch (err) {
-    console.error("Error saat proses pesan:", err);
   }
+  while (result[0]?.role === "model") result.shift();
+  return result;
+}
+
+async function askGemini(chatId, text) {
+  const history = cleanHistory(getHistory(chatId, MAX_HISTORY));
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [...history, { role: "user", parts: [{ text }] }],
+        generationConfig: { temperature: 1.1, maxOutputTokens: 300 },
+      }),
+    },
+  );
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error?.message || `Gemini HTTP ${response.status}`);
+  }
+
+  const reply = body?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text || "")
+    .join("")
+    .trim();
+  if (!reply) throw new Error("Gemini tidak mengembalikan teks");
+  return reply;
+}
+
+function scheduleReconnect(delay = 3000) {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => startWhatsApp(), delay);
+}
+
+async function startWhatsApp() {
+  if (starting) return;
+  starting = true;
+
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    activeSocket = makeWASocket({
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger),
+      },
+      browser: Browsers.macOS("Desktop"),
+      logger,
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      generateHighQualityLinkPreview: false,
+      getMessage: async () => undefined,
+    });
+
+    activeSocket.ev.on("creds.update", saveCreds);
+
+    activeSocket.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+      if (qr) {
+        console.log("\nScan QR ini: WhatsApp > Perangkat tertaut > Tautkan perangkat\n");
+        qrcode.generate(qr, { small: true });
+      }
+
+      if (connection === "open") {
+        console.log("WhatsApp tersambung. Arnel online.");
+        console.log(CONNECTION_ONLY ? "Mode tes koneksi aktif, pesan tidak akan dibalas." : "Bot siap membalas pesan.");
+      }
+
+      if (connection === "close") {
+        const error = lastDisconnect?.error;
+        const code = error?.output?.statusCode || error?.statusCode;
+        const message = error?.message || "alasan tidak diketahui";
+        console.log(`Koneksi tertutup. kode=${code ?? "?"} pesan=${message}`);
+
+        if (code === DisconnectReason.loggedOut || code === 401) {
+          console.log(`Session ditolak. Tutup bot, hapus folder ${AUTH_DIR}, lalu jalankan ulang untuk QR baru.`);
+          return;
+        }
+
+        const delay = code === DisconnectReason.restartRequired ? 1000 : 3000;
+        console.log(`Mencoba menyambung ulang dalam ${delay / 1000} detik...`);
+        scheduleReconnect(delay);
+      }
+    });
+
+    activeSocket.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify" || CONNECTION_ONLY) return;
+
+      for (const message of messages) {
+        try {
+          if (!message.message || message.key.fromMe || !isAllowed(message)) continue;
+          const chatId = message.key.remoteJid;
+          const text = getText(message);
+          if (!chatId || !text) continue;
+
+          console.log(`[masuk] ${chatId}: ${text}`);
+          const oldHistory = getHistory(chatId, MAX_HISTORY);
+          const reply = await askGemini(chatId, text);
+          saveMessage(chatId, "user", text);
+          saveMessage(chatId, "assistant", reply);
+
+          const parts = reply.split("||").map((part) => part.trim()).filter(Boolean);
+          for (const part of parts) {
+            await activeSocket.sendPresenceUpdate("composing", chatId);
+            await sleep(Math.min(900 + part.length * 25, 3500));
+            await activeSocket.sendMessage(chatId, { text: part });
+          }
+          await activeSocket.sendPresenceUpdate("paused", chatId);
+        } catch (error) {
+          console.error("Gagal memproses pesan:", error.message);
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Gagal memulai WhatsApp:", error.message);
+    scheduleReconnect(5000);
+  } finally {
+    starting = false;
+  }
+}
+
+process.on("SIGINT", () => {
+  clearTimeout(reconnectTimer);
+  activeSocket?.end?.(new Error("Bot dihentikan"));
+  process.exit(0);
 });
 
-client.initialize();
+startWhatsApp();
