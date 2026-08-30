@@ -89,7 +89,11 @@ async function askGemini(chatId, text) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [...history, { role: "user", parts: [{ text }] }],
-        generationConfig: { temperature: 1.1, maxOutputTokens: 300 },
+        generationConfig: {
+          temperature: 1.1,
+          maxOutputTokens: 800,
+          thinkingConfig: { thinkingLevel: "MINIMAL" },
+        },
       }),
     },
   );
@@ -103,7 +107,13 @@ async function askGemini(chatId, text) {
     ?.map((part) => part.text || "")
     .join("")
     .trim();
-  if (!reply) throw new Error("Gemini tidak mengembalikan teks");
+  if (!reply) {
+    const finishReason = body?.candidates?.[0]?.finishReason || "UNKNOWN";
+    const blockReason = body?.promptFeedback?.blockReason;
+    throw new Error(
+      `Gemini tidak mengembalikan teks (finish=${finishReason}${blockReason ? ` block=${blockReason}` : ""})`,
+    );
+  }
   return reply;
 }
 
