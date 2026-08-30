@@ -38,3 +38,22 @@ Bot juga akan memilih waktu acak dan mengirim pesan setelah percakapan sepi 2-4 
 
 Foto masuk hingga 5 MB dianalisis dengan Gemini. Arnel memberi satu reaction emoji
 dan membalas dengan teks pendek berdasarkan isi foto. Foto tanpa caption tetap diproses.
+
+## Trainer dan perkembangan hubungan
+
+Nomor yang tercantum di `ALLOWED_NUMBER` dapat memberi feedback langsung melalui WhatsApp:
+
+- `!good` menyimpan pasangan pesan dan balasan terakhir sebagai contoh yang disukai.
+- `!teach jawaban yang diinginkan` mengganti balasan terakhir di riwayat dan menyimpannya sebagai contoh koreksi.
+
+Contoh:
+
+```text
+user: !teach ohh sama rian main apaan
+arnel: nah gitu ya
+arnel: gw inget
+```
+
+Contoh latihan disimpan di `data/training_examples.json`, sedangkan tingkat kedekatan dan mood
+disimpan di `data/relationship_state.json`. Keduanya tidak masuk Git karena folder `data`
+diabaikan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
