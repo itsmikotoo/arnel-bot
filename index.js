@@ -5,6 +5,7 @@ import process from "node:process";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadContentFromMessage,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
@@ -122,7 +123,7 @@ function cleanHistory(history) {
   return result;
 }
 
-async function askGemini(chatId, text) {
+async function requestGemini(chatId, userParts) {
   const history = cleanHistory(getHistory(chatId, MAX_HISTORY));
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
@@ -131,7 +132,7 @@ async function askGemini(chatId, text) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [...history, { role: "user", parts: [{ text }] }],
+        contents: [...history, { role: "user", parts: userParts }],
         generationConfig: {
           temperature: 1.1,
           maxOutputTokens: 800,
@@ -158,6 +159,49 @@ async function askGemini(chatId, text) {
     );
   }
   return reply;
+}
+
+async function askGemini(chatId, text) {
+  return requestGemini(chatId, [{ text }]);
+}
+
+async function downloadImage(imageMessage) {
+  const stream = await downloadContentFromMessage(imageMessage, "image");
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of stream) {
+    size += chunk.length;
+    if (size > 5 * 1024 * 1024) throw new Error("Foto lebih besar dari batas 5 MB");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function understandImage(chatId, imageMessage) {
+  const image = await downloadImage(imageMessage);
+  const caption = imageMessage.caption?.trim();
+  const instruction = [
+    "Lihat foto ini dan tanggapi sebagai Arnel.",
+    caption ? `Caption pengirim: ${caption}` : "Foto dikirim tanpa caption.",
+    "Balas persis dua baris dengan format:",
+    "REACTION: satu emoji WhatsApp yang sesuai",
+    "REPLY: chat pendek natural maksimal 8 kata tanpa emoji dan tanpa hinaan",
+  ].join("\n");
+
+  const raw = await requestGemini(chatId, [
+    { text: instruction },
+    {
+      inline_data: {
+        mime_type: imageMessage.mimetype || "image/jpeg",
+        data: image.toString("base64"),
+      },
+    },
+  ]);
+
+  const reaction = raw.match(/REACTION:\s*(\S+)/i)?.[1] || "👀";
+  const reply = raw.match(/REPLY:\s*(.+)/i)?.[1]?.trim() || raw.replace(/REACTION:.*$/gim, "").trim();
+  return { reaction, reply };
 }
 
 async function createProactiveMessage(chatId, reason) {
@@ -306,14 +350,25 @@ async function startWhatsApp() {
         try {
           if (!message.message || message.key.fromMe || !isAllowed(message)) continue;
           const chatId = message.key.remoteJid;
+          const imageMessage = message.message.imageMessage;
           const text = getText(message);
-          if (!chatId || !text) continue;
+          if (!chatId || (!text && !imageMessage)) continue;
 
-          console.log(`[masuk] ${chatId}: ${text}`);
+          console.log(`[masuk] ${chatId}: ${imageMessage ? "[foto]" : text}`);
           touchActivity();
-          const oldHistory = getHistory(chatId, MAX_HISTORY);
-          const reply = await askGemini(chatId, text);
-          saveMessage(chatId, "user", text);
+          let reply;
+
+          if (imageMessage) {
+            const result = await understandImage(chatId, imageMessage);
+            reply = result.reply;
+            await activeSocket.sendMessage(chatId, {
+              react: { text: result.reaction, key: message.key },
+            });
+          } else {
+            reply = await askGemini(chatId, text);
+          }
+
+          saveMessage(chatId, "user", imageMessage ? `[foto] ${text || "tanpa caption"}` : text);
           saveMessage(chatId, "assistant", reply);
 
           const parts = reply.split("||").map((part) => part.trim()).filter(Boolean);
