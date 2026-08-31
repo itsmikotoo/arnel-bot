@@ -140,22 +140,62 @@ function relationshipStage(closeness) {
   return "masih membangun kedekatan";
 }
 
+const MOODS = ["hangat", "iseng", "manja", "tenang"];
+
 function moodFor(interactions) {
-  const moods = ["hangat", "iseng", "manja", "tenang"];
-  return moods[Math.floor(interactions / 10) % moods.length];
+  return MOODS[Math.floor(interactions / 14) % MOODS.length];
 }
 
-export function recordInteraction(chatId) {
+function nextMood(state) {
+  const current = state.mood || "hangat";
+  const start = (state.interactions + (state.moodSeed || 0)) % MOODS.length;
+  for (let offset = 0; offset < MOODS.length; offset += 1) {
+    const candidate = MOODS[(start + offset) % MOODS.length];
+    if (candidate !== current) return candidate;
+  }
+  return current;
+}
+
+function chatHabit(state) {
+  const samples = state.messageLengths || [];
+  if (!samples.length) return "belum cukup kebaca";
+  const average = samples.reduce((total, value) => total + value, 0) / samples.length;
+  if (average <= 22) return "cenderung singkat dan cepat";
+  if (average >= 85) return "sering cerita cukup detail";
+  return "campuran santai kadang singkat kadang cerita";
+}
+
+export function recordInteraction(chatId, text = "") {
   const states = loadJson(RELATIONSHIP_FILE, {});
   const state = states[chatId] || {
     closeness: 20,
     interactions: 0,
     goodCount: 0,
     taughtCount: 0,
+    mood: "hangat",
+    moodSeed: Math.floor(Math.random() * 1000),
+    moodShiftAt: 14,
+    messageLengths: [],
   };
+
   state.interactions += 1;
   if (state.interactions % 12 === 0) state.closeness = Math.min(100, state.closeness + 1);
-  state.mood = moodFor(state.interactions);
+
+  const cleanText = text.replace(/^\[[^\]]+\]\s*/, "").trim();
+  if (cleanText) {
+    state.messageLengths ||= [];
+    state.messageLengths.push(cleanText.length);
+    state.messageLengths = state.messageLengths.slice(-30);
+  }
+
+  state.mood ||= "hangat";
+  state.moodSeed ||= Math.floor(Math.random() * 1000);
+  state.moodShiftAt ||= 14;
+  if (state.interactions >= state.moodShiftAt) {
+    state.mood = nextMood(state);
+    state.moodShiftAt = state.interactions + 12 + (state.moodSeed % 9);
+  }
+
   state.updatedAt = Date.now();
   states[chatId] = state;
   saveJson(RELATIONSHIP_FILE, states);
