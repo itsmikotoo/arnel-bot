@@ -45,6 +45,15 @@ Nomor yang tercantum di `ALLOWED_NUMBER` dapat memberi feedback langsung melalui
 
 - `!good` menyimpan pasangan pesan dan balasan terakhir sebagai contoh yang disukai.
 - `!teach jawaban yang diinginkan` mengganti balasan terakhir di riwayat dan menyimpannya sebagai contoh koreksi.
+- `!atur aturan gaya` menyimpan aturan permanen agar tidak perlu melatih kesalahan yang sama satu per satu.
+- `!aturan` menampilkan aturan yang sedang dipakai Arnel.
+
+Contoh aturan:
+
+```text
+!atur jangan pura pura salah paham kalau konteksnya udh jelas
+!atur kalau gw chat singkat jangan jadi defensif atau kebanyakan bubble
+```
 
 Contoh:
 
