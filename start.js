@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { saveTrainingExample } from "./db.js";
 
 const PORT = Number(process.env.DASHBOARD_PORT || 3000);
 const HOST = process.env.DASHBOARD_HOST || "0.0.0.0";
@@ -40,7 +41,6 @@ function loadJson(file, fallback) {
 function addLog(level, text) {
   const clean = String(text).trim();
   if (!clean) return;
-
   state.logs.unshift({ time: Date.now(), level, text: clean });
   state.logs = state.logs.slice(0, 160);
 
@@ -103,8 +103,6 @@ function spawnBot() {
     state.whatsapp = "offline";
     addLog("error", `Gagal menjalankan bot: ${error.message}`);
   });
-
-  return child;
 }
 
 async function restartBot() {
@@ -123,18 +121,12 @@ async function restartBot() {
         resolve();
       });
     });
-
     if (previous.exitCode === null && !previous.killed) previous.kill("SIGTERM");
   }
 
   spawnBot();
   restarting = false;
   return true;
-}
-
-function bytes(value) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.round(value / 1024 / 1024);
 }
 
 function startOfToday() {
@@ -158,11 +150,10 @@ function persistentStats() {
       if (item.role === "assistant") outgoingToday += 1;
     }
   }
-
   return { incomingToday, outgoingToday, totalMessages };
 }
 
-function memorySnapshot(limit = 10) {
+function memorySnapshot(limit = 8) {
   const data = loadJson(MEMORY_FILE, {});
   const rows = [];
   for (const [chatId, items] of Object.entries(data)) {
@@ -172,7 +163,6 @@ function memorySnapshot(limit = 10) {
         chatId,
         content: item.content || "",
         uses: item.uses || 1,
-        createdAt: item.createdAt || 0,
         updatedAt: item.updatedAt || item.createdAt || 0,
       });
     }
@@ -195,32 +185,59 @@ function trainingSnapshot(limit = 8) {
     .slice(0, limit);
 }
 
+function historySnapshot(limit = 18) {
+  const data = loadJson(HISTORY_FILE, {});
+  const rows = [];
+
+  for (const [chatId, messages] of Object.entries(data)) {
+    if (!Array.isArray(messages)) continue;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role !== "assistant") continue;
+      let userIndex = i - 1;
+      while (userIndex >= 0 && messages[userIndex]?.role !== "user") userIndex -= 1;
+      if (userIndex < 0) continue;
+      rows.push({
+        chatId,
+        input: messages[userIndex].content || "",
+        output: messages[i].content || "",
+        createdAt: messages[i].createdAt || messages[userIndex].createdAt || 0,
+      });
+      i = userIndex;
+    }
+  }
+
+  return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+}
+
 function snapshot() {
   const cpus = os.cpus();
-  const persistent = persistentStats();
+  const totalMemoryMb = Math.round(os.totalmem() / 1024 / 1024);
+  const freeMemoryMb = Math.round(os.freemem() / 1024 / 1024);
   return {
     whatsapp: state.whatsapp,
-    botProcess: state.botProcess,
-    inboundSession: state.inboundSession,
     proactiveSession: state.proactiveSession,
-    errorsSession: state.errorsSession,
-    restartCount: state.restartCount,
-    lastActivity: state.lastActivity,
     uptimeMs: Date.now() - startedAt,
-    stats: persistent,
+    stats: persistentStats(),
     system: {
       hostname: os.hostname(),
-      platform: `${os.type()} ${os.release()}`,
       cpu: cpus[0]?.model || "unknown",
-      cores: cpus.length,
-      totalMemoryMb: bytes(os.totalmem()),
-      freeMemoryMb: bytes(os.freemem()),
-      loadAverage: os.loadavg(),
+      totalMemoryMb,
+      freeMemoryMb,
     },
     memories: memorySnapshot(),
     training: trainingSnapshot(),
+    history: historySnapshot(),
     logs: state.logs,
   };
+}
+
+async function readBody(req) {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 100000) throw new Error("request terlalu besar");
+  }
+  return body ? JSON.parse(body) : {};
 }
 
 const html = `<!doctype html>
@@ -230,7 +247,7 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Arnel Dashboard</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0b0b0e;color:#f4f4f5;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1180px;margin:auto;padding:28px 18px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.topright{display:flex;align-items:center;gap:10px}.title h1{margin:0;font-size:29px}.title p{margin:6px 0 0;color:#8c8c95;font-size:14px}.pill{border:1px solid #303038;background:#17171c;padding:8px 13px;border-radius:999px;font-size:13px}.online{color:#77f0a1;border-color:#245c38;background:#102619}.offline,.stopped,.error{color:#ff8585;border-color:#603030;background:#291414}.reconnecting,.starting,.needs_qr{color:#ffd277;border-color:#675126;background:#2b2412}.btn{border:1px solid #34343d;background:#1b1b20;color:#f3f3f4;padding:8px 13px;border-radius:10px;cursor:pointer;font-weight:600}.btn:hover{background:#24242b}.btn:disabled{opacity:.5;cursor:not-allowed}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.card{background:#151519;border:1px solid #25252c;border-radius:16px;padding:18px}.label{font-size:12px;color:#85858f;margin-bottom:9px}.value{font-size:24px;font-weight:700}.section{margin-top:14px}.system{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}.mini{padding:13px;background:#101013;border-radius:11px}.mini b{display:block;margin-top:5px;font-size:13px;font-weight:600}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.list{max-height:330px;overflow:auto}.item{padding:12px 0;border-bottom:1px solid #25252c}.item:last-child{border-bottom:0}.itemmeta{font-size:11px;color:#6f6f78;margin-bottom:5px}.itemtext{font-size:13px;line-height:1.45;word-break:break-word}.arrow{color:#686871;padding:4px 0}.logs{height:340px;overflow:auto;background:#09090b;border-radius:11px;padding:13px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.line{margin-bottom:5px;word-break:break-word}.time{color:#565661}.err{color:#ff8686}.empty{color:#686871;font-size:13px;padding:6px 0}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.system,.twocol{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.topright{width:100%;justify-content:space-between}}
+*{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#17181b;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1180px;margin:auto;padding:28px 18px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.topright{display:flex;align-items:center;gap:10px}.title h1{margin:0;font-size:29px}.title p{margin:6px 0 0;color:#6d7178;font-size:14px}.pill{border:1px solid #d4d7dc;background:#fff;padding:8px 13px;border-radius:999px;font-size:13px;font-weight:650}.online{color:#087a37;border-color:#a8ddbd;background:#eaf8ef}.offline,.stopped,.error{color:#a22626;border-color:#efbaba;background:#fff0f0}.reconnecting,.starting,.needs_qr{color:#8a5a00;border-color:#ead39b;background:#fff8df}.btn{border:1px solid #c7cbd1;background:#fff;color:#1b1c20;padding:8px 13px;border-radius:10px;cursor:pointer;font-weight:650}.btn:hover{background:#f0f1f3}.btn.good{color:#087a37;border-color:#a8ddbd;background:#f2fbf5}.btn.teach{color:#245fb5;border-color:#b8cae8;background:#f3f7fd}.btn.small{font-size:11px;padding:6px 9px}.btn:disabled{opacity:.5;cursor:not-allowed}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.card{background:#fff;border:1px solid #dfe2e6;border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.03)}.label{font-size:12px;color:#777c84;margin-bottom:9px}.value{font-size:24px;font-weight:750}.section{margin-top:14px}.system{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}.mini{padding:13px;background:#f6f7f8;border:1px solid #eceef0;border-radius:11px}.mini b{display:block;margin-top:5px;font-size:13px;font-weight:650}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.list{max-height:330px;overflow:auto}.item{padding:12px 0;border-bottom:1px solid #eceef0}.item:last-child{border-bottom:0}.itemmeta{font-size:11px;color:#8a8f96;margin-bottom:5px}.itemtext{font-size:13px;line-height:1.45;word-break:break-word}.arrow{color:#969aa0;padding:4px 0}.history{max-height:560px;overflow:auto}.exchange{padding:14px;border:1px solid #e3e6ea;background:#fafbfc;border-radius:12px;margin-bottom:10px}.bubble{padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word}.user{background:#edf3ff;border:1px solid #dce7fa}.arnel{background:#f2f7f3;border:1px solid #dce9df;margin-top:7px}.who{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em;color:#747981;margin-bottom:4px}.actions{display:flex;gap:7px;margin-top:9px}.logs{height:300px;overflow:auto;background:#f7f8f9;border:1px solid #e5e7ea;border-radius:11px;padding:13px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.line{margin-bottom:5px;word-break:break-word}.time{color:#91959b}.err{color:#b42323}.empty{color:#8b9097;font-size:13px;padding:6px 0}.toast{position:fixed;right:20px;bottom:20px;background:#202225;color:white;padding:11px 15px;border-radius:10px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.system,.twocol{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.topright{width:100%;justify-content:space-between}}
 </style>
 </head>
 <body>
@@ -247,14 +264,13 @@ const html = `<!doctype html>
     <div class="card"><div class="label">Proactive this session</div><div id="proactive" class="value">0</div></div>
   </div>
 
-  <div class="card section">
-    <div class="label">Debian system</div>
-    <div class="system">
-      <div class="mini"><span class="label">Hostname</span><b id="host">-</b></div>
-      <div class="mini"><span class="label">CPU</span><b id="cpu">-</b></div>
-      <div class="mini"><span class="label">Memory</span><b id="memory">-</b></div>
-    </div>
-  </div>
+  <div class="card section"><div class="label">Debian system</div><div class="system">
+    <div class="mini"><span class="label">Hostname</span><b id="host">-</b></div>
+    <div class="mini"><span class="label">CPU</span><b id="cpu">-</b></div>
+    <div class="mini"><span class="label">Memory</span><b id="memory">-</b></div>
+  </div></div>
+
+  <div class="card section"><div class="label">Chat history trainer</div><div id="history" class="history"></div></div>
 
   <div class="twocol">
     <div class="card"><div class="label">Recent memories</div><div id="memories" class="list"></div></div>
@@ -263,26 +279,30 @@ const html = `<!doctype html>
 
   <div class="card section"><div class="label">Live logs</div><div id="logs" class="logs">belum ada log</div></div>
 </div>
+<div id="toast" class="toast"></div>
 <script>
 const $=id=>document.getElementById(id);
 function uptime(ms){let s=Math.floor(ms/1000),d=Math.floor(s/86400);s%=86400;let h=Math.floor(s/3600);s%=3600;let m=Math.floor(s/60);return d+'d '+h+'h '+m+'m '+(s%60)+'s'}
 function esc(s){let d=document.createElement('div');d.textContent=s??'';return d.innerHTML}
-function when(ms){if(!ms)return '-';return new Date(ms).toLocaleString()}
+function when(ms){return ms?new Date(ms).toLocaleString():'-'}
+function toast(text){let t=$('toast');t.textContent=text;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
 function memoryHtml(rows){if(!rows.length)return '<div class="empty">belum ada memory</div>';return rows.map(x=>'<div class="item"><div class="itemmeta">uses '+x.uses+' · '+esc(when(x.updatedAt))+'</div><div class="itemtext">'+esc(x.content)+'</div></div>').join('')}
 function trainingHtml(rows){if(!rows.length)return '<div class="empty">belum ada training</div>';return rows.map(x=>'<div class="item"><div class="itemmeta">'+esc(x.source)+' · uses '+x.uses+'</div><div class="itemtext">'+esc(x.input)+'</div><div class="arrow">↓</div><div class="itemtext">'+esc(x.output)+'</div></div>').join('')}
-async function refresh(){try{let r=await fetch('/api/status',{cache:'no-store'}),x=await r.json();$('uptime').textContent=uptime(x.uptimeMs);$('todayIn').textContent=x.stats.incomingToday;$('todayOut').textContent=x.stats.outgoingToday;$('proactive').textContent=x.proactiveSession;$('host').textContent=x.system.hostname;$('cpu').textContent=x.system.cpu;$('memory').textContent=(x.system.totalMemoryMb-x.system.freeMemoryMb)+' / '+x.system.totalMemoryMb+' MB';$('memories').innerHTML=memoryHtml(x.memories);$('training').innerHTML=trainingHtml(x.training);let s=$('status');s.textContent=x.whatsapp;s.className='pill '+x.whatsapp;$('logs').innerHTML=x.logs.length?x.logs.map(l=>'<div class="line '+(l.level==='error'?'err':'')+'"><span class="time">['+new Date(l.time).toLocaleTimeString()+']</span> '+esc(l.text)+'</div>').join(''):'belum ada log'}catch(e){let s=$('status');s.textContent='dashboard disconnected';s.className='pill offline'}}
+function historyHtml(rows){if(!rows.length)return '<div class="empty">belum ada chat history</div>';return rows.map((x,i)=>'<div class="exchange"><div class="itemmeta">'+esc(when(x.createdAt))+'</div><div class="bubble user"><div class="who">You</div>'+esc(x.input)+'</div><div class="bubble arnel"><div class="who">Arnel</div>'+esc(x.output)+'</div><div class="actions"><button class="btn good small" onclick="trainGood('+i+')">Good</button><button class="btn teach small" onclick="trainTeach('+i+')">Teach</button></div></div>').join('')}
+let lastData={history:[]};
+async function train(row,output,source){let r=await fetch('/api/train',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chatId:row.chatId,input:row.input,output,source})});let x=await r.json();if(!r.ok)throw new Error(x.error||'gagal training');toast(source==='good'?'disimpan sebagai good':'jawaban baru disimpan');await refresh()}
+async function trainGood(i){try{let x=lastData.history[i];if(x)await train(x,x.output,'good')}catch(e){alert(e.message)}}
+async function trainTeach(i){let x=lastData.history[i];if(!x)return;let desired=prompt('Arnel seharusnya jawab apa?',x.output);if(!desired||!desired.trim())return;try{await train(x,desired.trim(),'teach')}catch(e){alert(e.message)}}
+async function refresh(){try{let r=await fetch('/api/status',{cache:'no-store'}),x=await r.json();lastData=x;$('uptime').textContent=uptime(x.uptimeMs);$('todayIn').textContent=x.stats.incomingToday;$('todayOut').textContent=x.stats.outgoingToday;$('proactive').textContent=x.proactiveSession;$('host').textContent=x.system.hostname;$('cpu').textContent=x.system.cpu;$('memory').textContent=(x.system.totalMemoryMb-x.system.freeMemoryMb)+' / '+x.system.totalMemoryMb+' MB';$('history').innerHTML=historyHtml(x.history);$('memories').innerHTML=memoryHtml(x.memories);$('training').innerHTML=trainingHtml(x.training);let s=$('status');s.textContent=x.whatsapp;s.className='pill '+x.whatsapp;$('logs').innerHTML=x.logs.length?x.logs.map(l=>'<div class="line '+(l.level==='error'?'err':'')+'"><span class="time">['+new Date(l.time).toLocaleTimeString()+']</span> '+esc(l.text)+'</div>').join(''):'belum ada log'}catch(e){let s=$('status');s.textContent='dashboard disconnected';s.className='pill offline'}}
 $('restart').addEventListener('click',async()=>{if(!confirm('Restart Arnel sekarang?'))return;let b=$('restart');b.disabled=true;b.textContent='Restarting...';try{await fetch('/api/restart',{method:'POST'});setTimeout(refresh,500)}finally{setTimeout(()=>{b.disabled=false;b.textContent='Restart Arnel'},1800)}});
-refresh();setInterval(refresh,2000);
+refresh();setInterval(refresh,2500);
 </script>
 </body>
 </html>`;
 
 const server = http.createServer(async (req, res) => {
   if (req.url === "/api/status" && req.method === "GET") {
-    res.writeHead(200, {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    });
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     res.end(JSON.stringify(snapshot()));
     return;
   }
@@ -300,6 +320,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === "/api/train" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const chatId = String(body.chatId || "").trim();
+      const input = String(body.input || "").trim();
+      const output = String(body.output || "").trim();
+      const source = body.source === "good" ? "good" : "teach";
+      if (!chatId || !input || !output) throw new Error("data training tidak lengkap");
+      saveTrainingExample(chatId, input, output, source);
+      addLog("info", `[dashboard trainer] ${source}: ${input.slice(0, 60)}`);
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: error.message }));
+    }
+    return;
+  }
+
   if (req.url === "/" && req.method === "GET") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
@@ -311,10 +350,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 spawnBot();
-
-server.listen(PORT, HOST, () => {
-  console.log(`Dashboard aktif di http://localhost:${PORT}`);
-});
+server.listen(PORT, HOST, () => console.log(`Dashboard aktif di http://localhost:${PORT}`));
 
 function shutdown(signal) {
   console.log(`Menerima ${signal}, menghentikan dashboard dan bot...`);
