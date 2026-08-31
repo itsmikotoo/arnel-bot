@@ -444,7 +444,7 @@ function shouldReplyWithQuote(message, text, parts) {
 }
 
 async function generateAndSendReply(message, chatId, text, imageMessage, stickerMessage) {
-  recordInteraction(chatId);
+  recordInteraction(chatId, text);
   let reply;
   let userContent = text;
 
