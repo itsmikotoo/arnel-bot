@@ -294,10 +294,37 @@ function getStickerReply(stickerMessage) {
   return replies[seed % replies.length];
 }
 
+function recentConversationSnapshot(chatId, limit = 8) {
+  return getHistory(chatId, limit)
+    .map((item) => `${item.role === "assistant" ? "arnel" : "user"}: ${item.content}`)
+    .join("\n");
+}
+
+function recentAssistantOpeners(chatId, limit = 6) {
+  return getHistory(chatId, limit)
+    .filter((item) => item.role === "assistant")
+    .map((item) => item.content.trim().toLowerCase().split(/\s+/)[0])
+    .filter(Boolean)
+    .join(", ");
+}
+
 async function createProactiveMessage(chatId, reason) {
+  const recentChat = recentConversationSnapshot(chatId);
+  const recentOpeners = recentAssistantOpeners(chatId);
   return askGemini(
     chatId,
-    `Mulai percakapan duluan sekarang. Alasannya ${reason}. Buat pembuka Arnel yang natural dan sesuai mood. Biasanya satu bubble pendek, tetapi boleh 2 atau 3 bubble kalau memang ada hal kecil yang ingin diceritakan. Jangan menjelaskan bahwa ini pesan terjadwal.`,
+    [
+      `Mulai percakapan duluan sekarang. Alasannya ${reason}.`,
+      "Pakai percakapan terbaru di bawah sebagai sumber kebenaran dan sambung topik terakhir kalau cocok.",
+      "Jangan tanya hal yang bertentangan dengan info terbaru. Contoh: kalau user sudah bilang habis upacara/sekolah, jangan tanya sudah bangun belum.",
+      "Jangan pura-pura user menghilang atau menuduh sibuk bila obrolan terakhir masih baru.",
+      "Jangan mulai dengan kata eh kecuali benar-benar alami; variasikan pembuka dan hindari pembuka yang baru dipakai Arnel.",
+      `Pembuka Arnel yang baru dipakai: ${recentOpeners || "belum ada"}.`,
+      "Biasanya satu bubble pendek, tetapi boleh 2 atau 3 bubble kalau memang ada hal kecil yang ingin diceritakan. Jangan menjelaskan bahwa ini pesan terjadwal.",
+      "",
+      "Percakapan terbaru:",
+      recentChat || "(belum ada percakapan)",
+    ].join("\n"),
   );
 }
 
