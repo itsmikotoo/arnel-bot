@@ -13,6 +13,7 @@ import pino from "pino";
 import qrcode from "qrcode-terminal";
 import { SYSTEM_PROMPT } from "./persona.js";
 import {
+  getBehaviorRules,
   getHistory,
   getLastExchange,
   getRelevantMemories,
@@ -21,6 +22,7 @@ import {
   recordFeedback,
   recordInteraction,
   replaceLastAssistant,
+  saveBehaviorRule,
   saveMemory,
   saveMessage,
   saveTrainingExample,
@@ -165,6 +167,7 @@ function cleanHistory(history) {
 
 function buildSystemInstruction(chatId, query = "") {
   const relationship = getRelationshipContext(chatId);
+  const rules = getBehaviorRules(chatId);
   const memories = getRelevantMemories(chatId, query, 6);
   const examples = getRelevantExamples(chatId, query, 6);
   const memoryContext = memories.length
@@ -183,6 +186,14 @@ function buildSystemInstruction(chatId, query = "") {
       ].join("\n")
     : "Belum ada contoh hasil latihan yang relevan.";
 
+  const behaviorRules = rules.length
+    ? [
+        "Aturan gaya permanen dari pemilik:",
+        ...rules.map((rule) => `- ${rule}`),
+        "Patuhi aturan ini selama tetap aman dan natural.",
+      ].join("\n")
+    : "Belum ada aturan gaya khusus.";
+
   return [
     SYSTEM_PROMPT,
     "",
@@ -192,6 +203,8 @@ function buildSystemInstruction(chatId, query = "") {
     memoryContext,
     "",
     learnedExamples,
+    "",
+    behaviorRules,
   ].join("\n");
 }
 
@@ -582,6 +595,27 @@ async function startWhatsApp() {
 
           const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
           const normalizedText = messageText.trim();
+
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!aturan") {
+            const rules = getBehaviorRules(chatId);
+            const output = rules.length
+              ? ["aturan arnel", ...rules.map((rule, index) => `${index + 1}. ${rule}`)].join("\n")
+              : "belom ada aturan khusus";
+            await activeSocket.sendMessage(chatId, { text: output });
+            continue;
+          }
+
+          if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!atur")) {
+            const rule = normalizedText.replace(/^!atur\s*:?[\s]*/i, "").trim();
+            if (!rule) {
+              await activeSocket.sendMessage(chatId, { text: "tulis !atur terus aturan yang lu mau" });
+              continue;
+            }
+            saveBehaviorRule(chatId, rule);
+            await activeSocket.sendMessage(chatId, { text: "okeh aturan ini gw pegang" });
+            console.log(`[aturan] ${chatId}: ${rule}`);
+            continue;
+          }
 
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!ingatan") {
             const memories = getRelevantMemories(chatId, "", 10);
