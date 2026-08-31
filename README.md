@@ -54,9 +54,10 @@ arnel: nah gitu ya
 arnel: gw inget
 ```
 
-Contoh latihan disimpan di `data/training_examples.json`, sedangkan tingkat kedekatan dan mood
-disimpan di `data/relationship_state.json`. Keduanya tidak masuk Git karena folder `data`
-diabaikan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
+Contoh latihan disimpan di `data/training_examples.json`, sedangkan tingkat kedekatan, mood,
+dan kebiasaan panjang chat disimpan di `data/relationship_state.json`. Keduanya tidak masuk Git
+karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
+acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
 
 ## Memori pribadi
 
