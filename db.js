@@ -6,6 +6,7 @@ const DB_FILE = path.join(DATA_DIR, "chat_history.json");
 const TRAINING_FILE = path.join(DATA_DIR, "training_examples.json");
 const RELATIONSHIP_FILE = path.join(DATA_DIR, "relationship_state.json");
 const MEMORY_FILE = path.join(DATA_DIR, "memories.json");
+const RULES_FILE = path.join(DATA_DIR, "behavior_rules.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadJson(file, fallback) {
@@ -280,4 +281,27 @@ export function getRelevantMemories(chatId, query = "", limit = 6) {
     })
     .sort((a, b) => b.score - a.score || (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .slice(0, limit);
+}
+
+export function saveBehaviorRule(chatId, content) {
+  const data = loadJson(RULES_FILE, {});
+  data[chatId] ||= [];
+  const rule = content.trim().replace(/\s+/g, " ");
+  const normalized = rule.toLowerCase();
+  const existing = data[chatId].find((item) => item.content.toLowerCase() === normalized);
+
+  if (existing) {
+    existing.updatedAt = Date.now();
+  } else {
+    data[chatId].push({ content: rule, createdAt: Date.now() });
+    data[chatId] = data[chatId].slice(-40);
+  }
+
+  saveJson(RULES_FILE, data);
+}
+
+export function getBehaviorRules(chatId, limit = 12) {
+  return (loadJson(RULES_FILE, {})[chatId] || [])
+    .slice(-limit)
+    .map((item) => item.content);
 }
