@@ -21,6 +21,7 @@ import {
   recordFeedback,
   recordInteraction,
   replaceLastAssistant,
+  saveMemory,
   saveMessage,
   saveTrainingExample,
 } from "./db.js";
