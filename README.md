@@ -68,6 +68,12 @@ dan kebiasaan panjang chat disimpan di `data/relationship_state.json`. Keduanya 
 karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
 acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
 
+## Kelanjutan cerita Arnel
+
+Saat Arnel menceritakan kegiatan, rencana, atau kejadian dirinya, bot menyimpan ringkasan teksnya
+di `data/arnel_story_notes.json`. Catatan ini dipakai hanya untuk menjaga cerita Arnel tetap
+konsisten pada chat berikutnya dan tidak menyalin isi chat user sebagai cerita Arnel.
+
 ## Memori pribadi
 
 Pemilik bot yang nomornya ada di `ALLOWED_NUMBER` dapat menyimpan memori secara sengaja:
