@@ -37,6 +37,10 @@ const PROACTIVE_TIMES = (process.env.PROACTIVE_TIMES || "08:00,12:30,19:30")
   .filter(Boolean);
 const PROACTIVE_DAILY_MAX = Number(process.env.PROACTIVE_DAILY_MAX || 5);
 const PROACTIVE_MIN_GAP_MS = 90 * 60 * 1000;
+const PROACTIVE_RECENT_ACTIVITY_MS = Math.max(
+  15 * 60 * 1000,
+  Number(process.env.PROACTIVE_RECENT_ACTIVITY_MINUTES || 60) * 60 * 1000,
+);
 const PROACTIVE_STATE_FILE = path.join(DATA_DIR, "proactive_state.json");
 const MAX_HISTORY = 20;
 const MESSAGE_DEBOUNCE_MS = Math.max(500, Number(process.env.MESSAGE_DEBOUNCE_MS || 3500));
@@ -330,9 +334,15 @@ async function runProactiveCheck(sock) {
   const idleDue = nowMs >= state.nextIdleAt;
   const randomDue = nowMs >= state.nextRandomAt;
   const enoughGap = nowMs - (state.lastProactiveAt || 0) >= PROACTIVE_MIN_GAP_MS;
+  const recentlyActive = nowMs - (state.lastActivityAt || 0) < PROACTIVE_RECENT_ACTIVITY_MS;
   const belowLimit = (state.sentToday || 0) < PROACTIVE_DAILY_MAX;
 
-  if (!(fixedDue || idleDue || randomDue) || !enoughGap || !belowLimit) {
+  if (
+    !(fixedDue || idleDue || randomDue) ||
+    !enoughGap ||
+    recentlyActive ||
+    !belowLimit
+  ) {
     writeProactiveState(state);
     return;
   }
