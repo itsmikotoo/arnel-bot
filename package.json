@@ -6,8 +6,9 @@
   "description": "WhatsApp persona bot berbasis Baileys",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "check": "node --check index.js && node --check db.js && node --check persona.js"
+    "start": "node start.js",
+    "bot": "node index.js",
+    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js"
   },
   "engines": {
     "node": ">=20"
