@@ -15,6 +15,7 @@ import { SYSTEM_PROMPT } from "./persona.js";
 import {
   getBehaviorRules,
   getHistory,
+  getRelevantArnelStories,
   getLastExchange,
   getRelevantMemories,
   getRelationshipContext,
@@ -22,6 +23,7 @@ import {
   recordFeedback,
   recordInteraction,
   replaceLastAssistant,
+  saveArnelStory,
   saveBehaviorRule,
   saveMemory,
   saveMessage,
@@ -168,6 +170,7 @@ function cleanHistory(history) {
 function buildSystemInstruction(chatId, query = "") {
   const relationship = getRelationshipContext(chatId);
   const rules = getBehaviorRules(chatId);
+  const arnelStories = getRelevantArnelStories(chatId, query, 6);
   const memories = getRelevantMemories(chatId, query, 6);
   const examples = getRelevantExamples(chatId, query, 6);
   const memoryContext = memories.length
@@ -194,6 +197,14 @@ function buildSystemInstruction(chatId, query = "") {
       ].join("\n")
     : "Belum ada aturan gaya khusus.";
 
+  const storyContinuity = arnelStories.length
+    ? [
+        "Hal yang pernah Arnel ceritakan sebelumnya:",
+        ...arnelStories.map((item) => `- ${item.content}`),
+        "Jaga kesinambungannya. Jika relevan boleh lanjutkan atau menyinggungnya, jangan mengaku lupa atau membuat versi yang bertentangan.",
+      ].join("\n")
+    : "Belum ada cerita Arnel yang perlu dilanjutkan.";
+
   return [
     SYSTEM_PROMPT,
     "",
@@ -205,6 +216,8 @@ function buildSystemInstruction(chatId, query = "") {
     learnedExamples,
     "",
     behaviorRules,
+    "",
+    storyContinuity,
   ].join("\n");
 }
 
@@ -399,6 +412,7 @@ async function runProactiveCheck(sock) {
   }
 
   saveMessage(jid, "assistant", message);
+  saveArnelStory(jid, message);
   state.lastProactiveAt = nowMs;
   state.lastActivityAt = nowMs;
   state.sentToday = (state.sentToday || 0) + 1;
@@ -477,6 +491,7 @@ async function generateAndSendReply(message, chatId, text, imageMessage, sticker
 
   saveMessage(chatId, "user", userContent);
   saveMessage(chatId, "assistant", reply);
+  saveArnelStory(chatId, reply);
 
   const parts = splitReply(reply);
   const quoteFirstReply = shouldReplyWithQuote(message, text, parts);
