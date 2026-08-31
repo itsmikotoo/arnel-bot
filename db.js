@@ -7,6 +7,7 @@ const TRAINING_FILE = path.join(DATA_DIR, "training_examples.json");
 const RELATIONSHIP_FILE = path.join(DATA_DIR, "relationship_state.json");
 const MEMORY_FILE = path.join(DATA_DIR, "memories.json");
 const RULES_FILE = path.join(DATA_DIR, "behavior_rules.json");
+const ARNEL_STORIES_FILE = path.join(DATA_DIR, "arnel_story_notes.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadJson(file, fallback) {
@@ -304,4 +305,43 @@ export function getBehaviorRules(chatId, limit = 12) {
   return (loadJson(RULES_FILE, {})[chatId] || [])
     .slice(-limit)
     .map((item) => item.content);
+}
+
+export function saveArnelStory(chatId, content) {
+  const cleanContent = content.replace(/\|\|/g, " ").replace(/\s+/g, " ").trim();
+  const soundsPersonal = /\b(gw|aku)\b/i.test(cleanContent);
+  const hasStorySignal = /\b(lagi|abis|tadi|baru|mau|pengen|besok|nanti|udah|belom)\b/i.test(cleanContent);
+  if (cleanContent.length < 20 || !soundsPersonal || !hasStorySignal) return;
+
+  const data = loadJson(ARNEL_STORIES_FILE, {});
+  data[chatId] ||= [];
+  const normalized = cleanContent.toLowerCase();
+  const existing = data[chatId].find((item) => item.content.toLowerCase() === normalized);
+
+  if (existing) {
+    existing.updatedAt = Date.now();
+    existing.uses = (existing.uses || 1) + 1;
+  } else {
+    data[chatId].push({
+      content: cleanContent,
+      createdAt: Date.now(),
+      uses: 1,
+    });
+    data[chatId] = data[chatId].slice(-80);
+  }
+
+  saveJson(ARNEL_STORIES_FILE, data);
+}
+
+export function getRelevantArnelStories(chatId, query = "", limit = 6) {
+  const queryWords = words(query);
+  const stories = loadJson(ARNEL_STORIES_FILE, {})[chatId] || [];
+
+  return stories
+    .map((item) => {
+      const overlap = words(item.content).filter((word) => queryWords.includes(word)).length;
+      return { ...item, score: overlap * 3 + Math.min(item.uses || 0, 3) * 0.1 };
+    })
+    .sort((a, b) => b.score - a.score || (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, limit);
 }
