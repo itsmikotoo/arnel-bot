@@ -238,7 +238,9 @@ export function getRelationshipContext(chatId) {
   return [
     `tingkat hubungan: ${relationshipStage(state.closeness)} (${state.closeness}/100)`,
     `mood arnel saat ini: ${state.mood || moodFor(state.interactions)}`,
+    `gaya chat lawan bicara belakangan: ${chatHabit(state)}`,
     `jumlah interaksi tersimpan: ${state.interactions}`,
+    "mood berubah pelan setelah banyak interaksi jadi jangan berganti karakter mendadak",
     "sesuaikan keakraban secara bertahap jangan mendadak posesif atau terlalu romantis",
   ].join("\n");
 }
