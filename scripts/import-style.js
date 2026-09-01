@@ -36,7 +36,19 @@ function parseLine(line) {
   return match ? { sender: clean(match[1]), text: clean(match[2]) } : null;
 }
 
-const targetName = clean(speakerArg).toLowerCase();
+function nameKey(value = "") {
+  const normalized = clean(value);
+  try {
+    // Instagram exports occasionally decode UTF-8 sender names as Latin-1.
+    const repaired = Buffer.from(normalized, "latin1").toString("utf8");
+    if (/[^\x00-\x7f]/.test(repaired)) return repaired.toLowerCase();
+  } catch {
+    // Keep the original spelling if it cannot be repaired.
+  }
+  return normalized.toLowerCase();
+}
+
+const targetName = nameKey(speakerArg);
 
 function parseWhatsApp(text) {
   const messages = [];
@@ -80,7 +92,7 @@ const messages = fileArgs.flatMap((fileArg) => {
 
 const seen = new Set();
 const candidates = messages
-  .filter((item) => item.sender.toLowerCase() === targetName)
+  .filter((item) => nameKey(item.sender) === targetName)
   .map((item) => clean(item.text))
   .filter((text) => text.length >= 3 && text.length <= 420 && !isMediaOrSystemMessage(text))
   .filter((text) => {
