@@ -72,7 +72,7 @@ acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk memb
 
 Kamu dapat mengimpor gaya dari export chat WhatsApp tanpa media atau file JSON dari export
 Instagram. Importer mengambil hanya pesan dari nama lawan chat yang kamu tentukan, membuang media
-dan duplikat, lalu menyimpan maksimal 80 contoh di `data/style_examples.json`.
+dan duplikat, lalu menyimpan maksimal 240 contoh di `data/style_examples.json`.
 
 ```bash
 npm run import-style -- "/home/mikoto/Downloads/WhatsApp Chat with Nama.txt" "Nama Lawan Chat"
