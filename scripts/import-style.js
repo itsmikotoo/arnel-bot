@@ -14,7 +14,7 @@ if (!fileArgs.length || !speakerArg) {
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const OUTPUT_FILE = path.join(DATA_DIR, "style_examples.json");
-const LIMIT = Math.max(20, Math.min(120, Number(process.env.STYLE_IMPORT_LIMIT || 80)));
+const LIMIT = Math.max(40, Math.min(300, Number(process.env.STYLE_IMPORT_LIMIT || 240)));
 
 function clean(value = "") {
   return value
