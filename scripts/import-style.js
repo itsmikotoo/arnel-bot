@@ -3,10 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const [fileArg, speakerArg] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const speakerArg = args.at(-1);
+const fileArgs = args.slice(0, -1);
 
-if (!fileArg || !speakerArg) {
-  console.error("Pakai: npm run import-style -- \"/path/chat.txt\" \"Nama Lawan Chat\"");
+if (!fileArgs.length || !speakerArg) {
+  console.error("Pakai: npm run import-style -- \"/path/chat.txt\" [file-lain.json] \"Nama Lawan Chat\"");
   process.exit(1);
 }
 
@@ -32,7 +34,6 @@ function parseLine(line) {
   return match ? { sender: clean(match[1]), text: clean(match[2]) } : null;
 }
 
-const raw = fs.readFileSync(path.resolve(fileArg), "utf8");
 const targetName = clean(speakerArg).toLowerCase();
 
 function parseWhatsApp(text) {
@@ -66,12 +67,14 @@ function parseInstagram(text) {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-let messages;
-try {
-  messages = parseInstagram(raw);
-} catch {
-  messages = parseWhatsApp(raw);
-}
+const messages = fileArgs.flatMap((fileArg) => {
+  const raw = fs.readFileSync(path.resolve(fileArg), "utf8");
+  try {
+    return parseInstagram(raw);
+  } catch {
+    return parseWhatsApp(raw);
+  }
+}).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
 const seen = new Set();
 const samples = messages
