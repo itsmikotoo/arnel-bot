@@ -27,7 +27,7 @@ function isMediaOrSystemMessage(value) {
 
 function parseLine(line) {
   const match = clean(line).match(
-    /^(?:\[)?\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\])?\s*(?:[-–])?\s*)([^:]+):\s*(.*)$/u,
+    /^(?:\[)?\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\])?\s*(?:[-–]\s*)?([^:]+):\s*(.*)$/u,
   );
   return match ? { sender: clean(match[1]), text: clean(match[2]) } : null;
 }
