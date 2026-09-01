@@ -77,6 +77,7 @@ dan duplikat, lalu menyimpan maksimal 80 contoh di `data/style_examples.json`.
 ```bash
 npm run import-style -- "/home/mikoto/Downloads/WhatsApp Chat with Nama.txt" "Nama Lawan Chat"
 npm run import-style -- "/home/mikoto/Downloads/message_1.json" "Nama Lawan Chat"
+npm run import-style -- "/home/mikoto/Downloads/message_1.json" "/home/mikoto/Downloads/message_2.json" "Nama Lawan Chat"
 ```
 
 Contoh terpilih dikirim ke Gemini hanya sebagai referensi ritme bahasa Arnel. Jangan impor chat
