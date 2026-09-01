@@ -70,12 +70,13 @@ acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk memb
 
 ## Import gaya chat
 
-Kamu dapat mengimpor gaya dari export chat WhatsApp tanpa media. Importer mengambil hanya pesan
-dari nama lawan chat yang kamu tentukan, membuang media dan duplikat, lalu menyimpan maksimal 80
-contoh di `data/style_examples.json`.
+Kamu dapat mengimpor gaya dari export chat WhatsApp tanpa media atau file JSON dari export
+Instagram. Importer mengambil hanya pesan dari nama lawan chat yang kamu tentukan, membuang media
+dan duplikat, lalu menyimpan maksimal 80 contoh di `data/style_examples.json`.
 
 ```bash
 npm run import-style -- "/home/mikoto/Downloads/WhatsApp Chat with Nama.txt" "Nama Lawan Chat"
+npm run import-style -- "/home/mikoto/Downloads/message_1.json" "Nama Lawan Chat"
 ```
 
 Contoh terpilih dikirim ke Gemini hanya sebagai referensi ritme bahasa Arnel. Jangan impor chat
