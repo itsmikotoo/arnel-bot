@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const append = rawArgs.includes("--append");
+const args = rawArgs.filter((arg) => arg !== "--append");
 const speakerArg = args.at(-1);
 const fileArgs = args.slice(0, -1);
 
@@ -14,7 +16,7 @@ if (!fileArgs.length || !speakerArg) {
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const OUTPUT_FILE = path.join(DATA_DIR, "style_examples.json");
-const LIMIT = Math.max(40, Math.min(300, Number(process.env.STYLE_IMPORT_LIMIT || 240)));
+const LIMIT = Math.max(40, Math.min(800, Number(process.env.STYLE_IMPORT_LIMIT || 500)));
 
 function clean(value = "") {
   return value
@@ -107,10 +109,36 @@ if (!samples.length) {
 }
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
+let existing = [];
+let sourceNames = [];
+if (append) {
+  try {
+    const oldData = JSON.parse(fs.readFileSync(OUTPUT_FILE, "utf8"));
+    existing = Array.isArray(oldData.samples) ? oldData.samples : [];
+    sourceNames = Array.isArray(oldData.sourceNames)
+      ? oldData.sourceNames
+      : oldData.sourceName ? [oldData.sourceName] : [];
+  } catch {
+    // Tidak ada referensi lama, lanjut sebagai import pertama.
+  }
+}
+
+const unique = new Map();
+for (const item of [...existing, ...samples]) {
+  const content = clean(item.content);
+  if (!content) continue;
+  unique.set(content.toLowerCase(), { ...item, content });
+}
+const mergedSamples = selectStyleSamples([...unique.values()], LIMIT);
+const sourceName = clean(speakerArg);
+if (!sourceNames.includes(sourceName)) sourceNames.push(sourceName);
+
 fs.writeFileSync(
   OUTPUT_FILE,
-  JSON.stringify({ sourceName: clean(speakerArg), importedAt: Date.now(), samples }, null, 2),
+  JSON.stringify({ sourceName: sourceNames.at(-1), sourceNames, importedAt: Date.now(), samples: mergedSamples }, null, 2),
 );
 
-console.log(`Berhasil menyimpan ${samples.length} contoh gaya dari ${clean(speakerArg)} ke ${OUTPUT_FILE}`);
+console.log(`${append ? "Menambah" : "Menyimpan"} ${samples.length} contoh dari ${sourceName}.`);
+console.log(`Total referensi aktif: ${mergedSamples.length} contoh (batas ${LIMIT}).`);
 console.log("Contoh ini dipakai sebagai referensi gaya Arnel, bukan disalin mentah.");
