@@ -1,19 +1,22 @@
 {
   "name": "arnel-bot",
-  "version": "1.0.0",
-  "description": "WhatsApp chatbot dengan persona Arnel Latasha",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp persona bot berbasis Baileys",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "check": "node --check index.js && node --check db.js && node --check persona.js && node --check scripts/import-style.js",
+    "import-style": "node scripts/import-style.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-    "whatsapp-web.js": "^1.26.0",
-    "qrcode-terminal": "^0.12.0",
-    "@google/generative-ai": "^0.21.0",
-    "dotenv": "^16.4.5"
-  },
-  "allowScripts": {
-    "puppeteer@24.38.0": true
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "dotenv": "^16.6.1",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0"
   }
 }
