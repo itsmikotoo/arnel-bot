@@ -68,6 +68,19 @@ dan kebiasaan panjang chat disimpan di `data/relationship_state.json`. Keduanya 
 karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
 acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
 
+## Import gaya chat
+
+Kamu dapat mengimpor gaya dari export chat WhatsApp tanpa media. Importer mengambil hanya pesan
+dari nama lawan chat yang kamu tentukan, membuang media dan duplikat, lalu menyimpan maksimal 80
+contoh di `data/style_examples.json`.
+
+```bash
+npm run import-style -- "/home/mikoto/Downloads/WhatsApp Chat with Nama.txt" "Nama Lawan Chat"
+```
+
+Contoh terpilih dikirim ke Gemini hanya sebagai referensi ritme bahasa Arnel. Jangan impor chat
+yang tidak punya izin untuk dipakai, dan jangan gunakan chat berisi data sensitif. Hasil impor
+tidak membuat Arnel menyalin kata-kata persis atau meniru identitas orang tersebut.
 ## Kelanjutan cerita Arnel
 
 Saat Arnel menceritakan kegiatan, rencana, atau kejadian dirinya, bot menyimpan ringkasan teksnya
