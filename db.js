@@ -8,6 +8,7 @@ const RELATIONSHIP_FILE = path.join(DATA_DIR, "relationship_state.json");
 const MEMORY_FILE = path.join(DATA_DIR, "memories.json");
 const RULES_FILE = path.join(DATA_DIR, "behavior_rules.json");
 const ARNEL_STORIES_FILE = path.join(DATA_DIR, "arnel_story_notes.json");
+const STYLE_EXAMPLES_FILE = path.join(DATA_DIR, "style_examples.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadJson(file, fallback) {
@@ -132,6 +133,19 @@ export function getRelevantExamples(chatId, query, limit = 6) {
       return { ...item, score: overlap * 2 + exactBonus + teachBonus };
     })
     .sort((a, b) => b.score - a.score || (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, limit);
+}
+
+export function getRelevantStyleExamples(query = "", limit = 8) {
+  const samples = loadJson(STYLE_EXAMPLES_FILE, {}).samples || [];
+  const queryWords = words(query);
+
+  return samples
+    .map((item, index) => {
+      const overlap = words(item.content).filter((word) => queryWords.includes(word)).length;
+      return { ...item, score: overlap * 3 + index * 0.001 };
+    })
+    .sort((a, b) => b.score - a.score || (b.importedAt || 0) - (a.importedAt || 0))
     .slice(0, limit);
 }
 
