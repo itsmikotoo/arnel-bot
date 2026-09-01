@@ -77,7 +77,7 @@ const messages = fileArgs.flatMap((fileArg) => {
 }).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
 const seen = new Set();
-const samples = messages
+const candidates = messages
   .filter((item) => item.sender.toLowerCase() === targetName)
   .map((item) => clean(item.text))
   .filter((text) => text.length >= 3 && text.length <= 420 && !isMediaOrSystemMessage(text))
@@ -86,8 +86,19 @@ const samples = messages
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  })
-  .slice(-LIMIT)
+  });
+
+function selectStyleSamples(items, limit) {
+  if (items.length <= limit) return items;
+  const recentCount = Math.ceil(limit * 0.6);
+  const older = items.slice(0, -recentCount);
+  const spacedOlder = Array.from({ length: limit - recentCount }, (_, index) => (
+    older[Math.floor(index * older.length / (limit - recentCount))]
+  ));
+  return [...spacedOlder, ...items.slice(-recentCount)];
+}
+
+const samples = selectStyleSamples(candidates, LIMIT)
   .map((content) => ({ content, importedAt: Date.now() }));
 
 if (!samples.length) {
