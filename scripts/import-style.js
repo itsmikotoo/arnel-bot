@@ -34,17 +34,43 @@ function parseLine(line) {
 
 const raw = fs.readFileSync(path.resolve(fileArg), "utf8");
 const targetName = clean(speakerArg).toLowerCase();
-const messages = [];
-let current;
 
-for (const line of raw.split(/\r?\n/)) {
-  const parsed = parseLine(line);
-  if (parsed) {
-    current = parsed;
-    messages.push(current);
-  } else if (current && clean(line)) {
-    current.text = clean(`${current.text} ${line}`);
+function parseWhatsApp(text) {
+  const messages = [];
+  let current;
+
+  for (const line of text.split(/\r?\n/)) {
+    const parsed = parseLine(line);
+    if (parsed) {
+      current = parsed;
+      messages.push(current);
+    } else if (current && clean(line)) {
+      current.text = clean(`${current.text} ${line}`);
+    }
   }
+
+  return messages;
+}
+
+function parseInstagram(text) {
+  const data = JSON.parse(text);
+  if (!Array.isArray(data.messages)) return [];
+
+  return data.messages
+    .filter((item) => typeof item.sender_name === "string" && typeof item.content === "string")
+    .map((item) => ({
+      sender: clean(item.sender_name),
+      text: clean(item.content),
+      timestamp: Number(item.timestamp_ms || 0),
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+let messages;
+try {
+  messages = parseInstagram(raw);
+} catch {
+  messages = parseWhatsApp(raw);
 }
 
 const seen = new Set();
