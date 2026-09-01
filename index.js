@@ -239,10 +239,29 @@ function buildSystemInstruction(chatId, query = "") {
   ].join("\n");
 }
 
+async function fetchGeminiWithRetry(url, options) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        console.log(`[gemini] koneksi gagal, coba lagi ${attempt}/3...`);
+        await sleep(attempt * 1200);
+      }
+    }
+  }
+
+  const detail = lastError?.cause?.code || lastError?.cause?.message || lastError?.message || "tidak diketahui";
+  throw new Error(`Tidak bisa terhubung ke Gemini setelah 3 percobaan: ${detail}`);
+}
+
 async function requestGemini(chatId, userParts, trainingQuery = "") {
   const history = cleanHistory(getHistory(chatId, MAX_HISTORY));
   const systemInstruction = buildSystemInstruction(chatId, trainingQuery);
-  const response = await fetch(
+  const response = await fetchGeminiWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
     {
       method: "POST",
