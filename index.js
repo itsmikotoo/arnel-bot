@@ -215,6 +215,10 @@ function buildSystemInstruction(chatId, query = "") {
       ].join("\n")
     : "Belum ada cerita Arnel yang perlu dilanjutkan.";
 
+  const stylePriority = styleExamples.length
+    ? "Prioritas akhir: contoh gaya chat manusia di atas lebih penting daripada kecenderungan jawaban asisten yang rapi. Jawab seperti chat spontan, jangan membuat rentetan pertanyaan atau kalimat basa basi."
+    : "";
+
   return [
     SYSTEM_PROMPT,
     "",
@@ -230,6 +234,8 @@ function buildSystemInstruction(chatId, query = "") {
     behaviorRules,
     "",
     storyContinuity,
+    "",
+    stylePriority,
   ].join("\n");
 }
 
@@ -581,6 +587,8 @@ async function startWhatsApp() {
       if (connection === "open") {
         console.log("WhatsApp tersambung. Arnel online.");
         console.log(CONNECTION_ONLY ? "Mode tes koneksi aktif, pesan tidak akan dibalas." : "Bot siap membalas pesan.");
+        const importedStyleCount = getRelevantStyleExamples("", 999).length;
+        if (importedStyleCount) console.log(`[gaya] ${importedStyleCount} contoh chat impor aktif.`);
         startProactiveScheduler(activeSocket);
       }
 
