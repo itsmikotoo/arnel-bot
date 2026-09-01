@@ -602,3 +602,78 @@ export function getDatabaseInfo() {
   const size = fs.existsSync(SQLITE_FILE) ? fs.statSync(SQLITE_FILE).size : 0;
   return { path: SQLITE_FILE, sizeBytes: size, engine: "SQLite (WAL)" };
 }
+
+
+// Arnel's optional style, rules and self-story use sidecar files; dashboard core data stays in SQLite.
+const RULES_FILE = path.join(DATA_DIR, "behavior_rules.json");
+const ARNEL_STORIES_FILE = path.join(DATA_DIR, "arnel_story_notes.json");
+const STYLE_EXAMPLES_FILE = path.join(DATA_DIR, "style_examples.json");
+
+function loadSidecarJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
+}
+
+function saveSidecarJson(file, data) {
+  const temporary = `${file}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(data, null, 2));
+  fs.renameSync(temporary, file);
+}
+
+export function getRelevantStyleExamples(query = "", limit = 8) {
+  const samples = loadSidecarJson(STYLE_EXAMPLES_FILE, {}).samples || [];
+  const queryWords = words(query);
+  return samples
+    .map((item, index) => ({
+      ...item,
+      score: words(item.content).filter((word) => queryWords.includes(word)).length * 3 + index * 0.001,
+    }))
+    .sort((a, b) => b.score - a.score || (b.importedAt || 0) - (a.importedAt || 0))
+    .slice(0, limit);
+}
+
+export function saveBehaviorRule(chatId, content) {
+  const data = loadSidecarJson(RULES_FILE, {});
+  data[chatId] ||= [];
+  const rule = String(content || "").trim().replace(/\s+/g, " ");
+  if (!rule) return;
+  const existing = data[chatId].find((item) => item.content.toLowerCase() === rule.toLowerCase());
+  if (existing) existing.updatedAt = Date.now();
+  else {
+    data[chatId].push({ content: rule, createdAt: Date.now() });
+    data[chatId] = data[chatId].slice(-40);
+  }
+  saveSidecarJson(RULES_FILE, data);
+}
+
+export function getBehaviorRules(chatId, limit = 12) {
+  return (loadSidecarJson(RULES_FILE, {})[chatId] || []).slice(-limit).map((item) => item.content);
+}
+
+export function saveArnelStory(chatId, content) {
+  const cleanContent = String(content || "").replace(/\|\|/g, " ").replace(/\s+/g, " ").trim();
+  const soundsPersonal = /\b(gw|aku)\b/i.test(cleanContent);
+  const hasStorySignal = /\b(lagi|abis|tadi|baru|mau|pengen|besok|nanti|udah|belom)\b/i.test(cleanContent);
+  if (cleanContent.length < 20 || !soundsPersonal || !hasStorySignal) return;
+  const data = loadSidecarJson(ARNEL_STORIES_FILE, {});
+  data[chatId] ||= [];
+  const existing = data[chatId].find((item) => item.content.toLowerCase() === cleanContent.toLowerCase());
+  if (existing) {
+    existing.updatedAt = Date.now();
+    existing.uses = (existing.uses || 1) + 1;
+  } else {
+    data[chatId].push({ content: cleanContent, createdAt: Date.now(), uses: 1 });
+    data[chatId] = data[chatId].slice(-80);
+  }
+  saveSidecarJson(ARNEL_STORIES_FILE, data);
+}
+
+export function getRelevantArnelStories(chatId, query = "", limit = 6) {
+  const queryWords = words(query);
+  return (loadSidecarJson(ARNEL_STORIES_FILE, {})[chatId] || [])
+    .map((item) => ({
+      ...item,
+      score: words(item.content).filter((word) => queryWords.includes(word)).length * 3 + Math.min(item.uses || 0, 3) * 0.1,
+    }))
+    .sort((a, b) => b.score - a.score || (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))
+    .slice(0, limit);
+}
