@@ -1,0 +1,75 @@
+import { SYSTEM_PROMPT } from "./persona.js";
+import { formatStyleExamples, turnGuidance } from "./style.js";
+import {
+  getHistory, getRelationshipContext, getBehaviorRules, getRelevantArnelStories,
+  getRelevantStyleExamples, getRelevantMemories, getRelevantExamples,
+} from "./db.js";
+
+export function buildSystemInstruction(chatId, query = "") {
+  const relationship = getRelationshipContext(chatId);
+  const rules = getBehaviorRules(chatId);
+  const arnelStories = getRelevantArnelStories(chatId, query, 6);
+  const recentHistory = getHistory(chatId, 8);
+  const recentReplies = recentHistory.filter((item) => item.role === "assistant").map((item) => item.content);
+  const styleExamples = getRelevantStyleExamples(query, 8, recentReplies);
+  const memories = getRelevantMemories(chatId, query, 6);
+  const examples = getRelevantExamples(chatId, query, 6);
+  const memoryContext = memories.length
+    ? [
+        "Hal yang Arnel ingat tentang lawan bicara:",
+        ...memories.map((item) => `- ${item.content}`),
+        "Gunakan hanya bila relevan dan natural. Jangan bilang bahwa ini disimpan sebagai memori.",
+      ].join("\n")
+    : "Belum ada memori khusus.";
+
+  const learnedExamples = examples.length
+    ? [
+        "Contoh jawaban yang sudah disukai atau dikoreksi pemilik:",
+        ...examples.map((item) => `user: ${item.input}\narnel: ${item.output}`),
+        "Ikuti pola dan nuansanya jika situasinya relevan jangan menyalin secara buta.",
+      ].join("\n")
+    : "Belum ada contoh hasil latihan yang relevan.";
+
+  const humanStyleExamples = formatStyleExamples(styleExamples);
+
+  const behaviorRules = rules.length
+    ? [
+        "Aturan gaya permanen dari pemilik:",
+        ...rules.map((rule) => `- ${rule}`),
+        "Patuhi aturan ini selama tetap aman dan natural.",
+      ].join("\n")
+    : "Belum ada aturan gaya khusus.";
+
+  const storyContinuity = arnelStories.length
+    ? [
+        "Hal yang pernah Arnel ceritakan sebelumnya:",
+        ...arnelStories.map((item) => `- ${item.content}`),
+        "Jaga kesinambungannya. Jika relevan boleh menyinggungnya. Jangan menebak kelanjutan atau detail yang belum ada; kalau tidak tahu, tidak perlu pura pura ingat.",
+      ].join("\n")
+    : "Belum ada cerita Arnel yang perlu dilanjutkan.";
+
+  const stylePriority = styleExamples.length
+    ? "Prioritas akhir: contoh gaya chat manusia di atas lebih penting daripada kecenderungan jawaban asisten yang rapi. Jawab seperti chat spontan, jangan membuat rentetan pertanyaan atau kalimat basa basi."
+    : "";
+
+  return [
+    SYSTEM_PROMPT,
+    "",
+    "Konteks perkembangan hubungan:",
+    relationship,
+    "",
+    memoryContext,
+    "",
+    learnedExamples,
+    "",
+    humanStyleExamples,
+    "",
+    behaviorRules,
+    "",
+    storyContinuity,
+    "",
+    stylePriority,
+    turnGuidance(query, recentHistory),
+  ].join("\n");
+}
+

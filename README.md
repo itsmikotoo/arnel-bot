@@ -68,21 +68,52 @@ dan kebiasaan panjang chat disimpan di `data/relationship_state.json`. Keduanya 
 karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
 acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
 
+## Respons natural dan contoh percakapan
+
+Arnel memakai contoh impor sebagai referensi cara merespons, bukan fakta tentang user.
+Prompt memprioritaskan koreksi `!teach` dan aturan pemilik, kemudian gaya chat impor.
+Balasan tidak wajib ditutup pertanyaan, tidak boleh menebak kegiatan/perasaan user sebagai
+fakta, dan harus menerima koreksi. Permintaan cerita tetap boleh dijawab panjang.
+Riwayat beberapa balasan terakhir membantu menghindari pola bertanya terus.
+
 ## Import gaya chat
 
-Kamu dapat mengimpor gaya dari export chat WhatsApp tanpa media atau file JSON dari export
-Instagram. Importer mengambil hanya pesan dari nama lawan chat yang kamu tentukan, membuang media
-dan duplikat, lalu menyimpan maksimal 240 contoh di `data/style_examples.json`.
+File `data/style_examples.json` lama tetap terbaca tanpa konversi dan tanpa dihapus.
+Agar referensinya memuat **pesan sebelumnya + respons teman**, impor ulang export asli
+WhatsApp atau Instagram. Potongan jawaban lama tidak bisa direkonstruksi menjadi pasangan
+percakapan tanpa file aslinya.
 
 ```bash
-npm run import-style -- "/home/mikoto/Downloads/WhatsApp Chat with Nama.txt" "Nama Lawan Chat"
-npm run import-style -- "/home/mikoto/Downloads/message_1.json" "Nama Lawan Chat"
-npm run import-style -- "/home/mikoto/Downloads/message_1.json" "/home/mikoto/Downloads/message_2.json" "Nama Lawan Chat"
+npm run import-style -- --append "/home/mikoto/Downloads/message_1.json" "Nama Lawan Chat"
+STYLE_IMPORT_LIMIT=800 npm run import-style -- --append "/home/mikoto/Downloads/message_1 (copy 1).json" "Nama Teman Pertama"
+STYLE_IMPORT_LIMIT=800 npm run import-style -- --append "/home/mikoto/Downloads/message_1 (copy 2).json" "Nama Teman Kedua"
 ```
 
-Contoh terpilih dikirim ke Gemini hanya sebagai referensi ritme bahasa Arnel. Jangan impor chat
-yang tidak punya izin untuk dipakai, dan jangan gunakan chat berisi data sensitif. Hasil impor
-tidak membuat Arnel menyalin kata-kata persis atau meniru identitas orang tersebut.
+- Defaultnya menambahkan contoh, sama seperti `--append`; contoh teman sebelumnya tetap ada.
+- `STYLE_IMPORT_LIMIT` mengatur jumlah contoh dari impor ini (default 800, rentang 1–5000).
+  Total gabungan dibatasi 5000. Jika melebihi batas, impor berhenti tanpa mengubah data lama.
+- `--replace` hanya jika sengaja ingin mengganti semua contoh. Impor ulang yang sama tidak
+  menambah duplikat pasangan pesan dan jawaban.
+- Bubble berurutan dari orang yang sama digabung. Pesan balasan hanya dipasangkan jika
+  berjarak maksimal dua jam. Media/pesan sistem dan batas antarfile memutus konteks agar
+  tidak membuat pasangan palsu. WhatsApp memakai tanggal hari/bulan/tahun.
+- Contoh dipilih berdasarkan pesan yang ditanggapi, kecocokan jenis percakapan dan
+  variasi respons. Contoh lama tanpa pasangan masih menjadi referensi ritme bahasa.
+
+Hanya sedikit contoh terpilih yang masuk ke tiap permintaan Gemini; bukan seluruh export.
+Jangan masukkan export pribadi, `.env`, atau folder `data` ke GitHub.
+
+## Verifikasi perubahan
+
+```bash
+npm run check
+npm test
+```
+
+Tes berjalan offline memakai percakapan buatan, tanpa menghubungkan WhatsApp atau memanggil
+Gemini. Tes memeriksa parsing, append, format lama, pemilihan contoh dan penyusunan prompt;
+kealamian jawaban model tetap perlu dicoba dengan obrolan nyata di perangkat pemilik.
+
 ## Kelanjutan cerita Arnel
 
 Saat Arnel menceritakan kegiatan, rencana, atau kejadian dirinya, bot menyimpan ringkasan teksnya

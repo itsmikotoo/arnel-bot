@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { selectStyleExamples } from "./style.js";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const DB_FILE = path.join(DATA_DIR, "chat_history.json");
@@ -136,17 +137,9 @@ export function getRelevantExamples(chatId, query, limit = 6) {
     .slice(0, limit);
 }
 
-export function getRelevantStyleExamples(query = "", limit = 8) {
+export function getRelevantStyleExamples(query = "", limit = 8, recentReplies = []) {
   const samples = loadJson(STYLE_EXAMPLES_FILE, {}).samples || [];
-  const queryWords = words(query);
-
-  return samples
-    .map((item, index) => {
-      const overlap = words(item.content).filter((word) => queryWords.includes(word)).length;
-      return { ...item, score: overlap * 3 + index * 0.001 };
-    })
-    .sort((a, b) => b.score - a.score || (b.importedAt || 0) - (a.importedAt || 0))
-    .slice(0, limit);
+  return selectStyleExamples(samples, query, limit, recentReplies);
 }
 
 function relationshipStage(closeness) {
