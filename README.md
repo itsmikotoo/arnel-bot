@@ -2,24 +2,54 @@
 
 Versi ringan berbasis Baileys 7. Tidak memakai Chromium atau Puppeteer.
 
-## Tes koneksi bersih di Windows PowerShell
+## Menjalankan bot dan dashboard
 
-```powershell
-cd D:\blender\bot
-Remove-Item -Recurse -Force .\data -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force .\node_modules -ErrorAction SilentlyContinue
-Remove-Item .\package-lock.json -Force -ErrorAction SilentlyContinue
-Copy-Item .env.example .env
+`npm start` sekarang menjalankan **dashboard dan bot WhatsApp bersama**.
+`npm run dashboard` adalah alias yang sama; jangan jalankan keduanya bersamaan.
+`npm run bot` hanya menjalankan bot, tanpa dashboard.
+
+Untuk memperbarui instalasi Debian yang sudah memakai branch ini, hentikan proses lama
+(Ctrl+C), lalu:
+
+```bash
+cd ~/arnel-bot
+git pull --ff-only origin feat/natural-chat
 npm install
 npm run check
+npm test
 npm start
 ```
 
-Biarkan `CONNECTION_ONLY=true` saat tes awal. Scan QR melalui WhatsApp > Perangkat tertaut.
-Jika terminal menampilkan `WhatsApp tersambung`, hentikan dengan Ctrl+C, ubah menjadi
-`CONNECTION_ONLY=false`, isi `GEMINI_API_KEY` serta `ALLOWED_NUMBER`, lalu jalankan lagi.
+Buka **http://localhost:3000** dari browser di komputer tempat bot berjalan.
+Alamat dan port bisa diatur lewat `DASHBOARD_HOST` dan `DASHBOARD_PORT` di `.env`.
+Default host `127.0.0.1` untuk akses lokal; jika sengaja memakai perangkat lain di LAN,
+atur host `0.0.0.0` dan akses IP komputer bot. Dashboard LAN tidak punya autentikasi;
+gunakan hanya pada jaringan yang dipercaya, jangan diekspos ke internet.
+Jika port sudah dipakai, hentikan proses dashboard lama atau pilih port lain.
 
-Jangan upload `.env` atau folder `data` ke GitHub.
+Untuk instalasi baru, siapkan `.env` dari `.env.example`, isi konfigurasi, lalu `npm install`.
+Gunakan Node.js 20 (sama seperti Dockerfile); dependency SQLite memerlukan binary native.
+Scan QR di terminal jika sesi WhatsApp belum tertaut.
+
+### Data yang dipakai bersama
+
+Dashboard dan bot memakai `data/arnel.sqlite3` untuk riwayat, training, memory, dan hubungan.
+Saat pertama menjalankan versi gabungan, data JSON di folder `DATA_DIR` yang sama diimpor
+sekali. Jika sudah ada SQLite dari dashboard lama, perubahan JSON yang lebih baru daripada
+migrasi sebelumnya digabung tanpa menimpa state SQLite yang lebih baru. File JSON asli
+**tetap disimpan**. Setelah itu, gunakan versi gabungan ini agar penulisan data tetap ke SQLite.
+Jangan hapus folder `data` atau menyalin `.env.example` di atas `.env` saat upgrade.
+
+Contoh gaya, aturan pemilik, dan catatan cerita tetap menggunakan file pendamping JSON
+sehingga impor gaya lama dan fitur natural-chat tetap aktif. Jumlah contoh gaya dan pasangan
+konteks terlihat di dashboard. Tombol **Teach** memperbaiki balasan yang dipilih di riwayat
+serta menyimpan contoh koreksinya untuk prompt bot.
+
+Untuk membuka dashboard tanpa menjalankan WhatsApp:
+
+```bash
+npm run dashboard -- --dashboard-only
+```
 
 ## Chat duluan
 
@@ -63,9 +93,8 @@ arnel: nah gitu ya
 arnel: gw inget
 ```
 
-Contoh latihan disimpan di `data/training_examples.json`, sedangkan tingkat kedekatan, mood,
-dan kebiasaan panjang chat disimpan di `data/relationship_state.json`. Keduanya tidak masuk Git
-karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
+Contoh latihan, tingkat kedekatan, mood, dan kebiasaan panjang chat disimpan di
+`data/arnel.sqlite3`. Database tidak masuk Git karena folder `data` diabaikan. Mood bergeser perlahan tiap sekitar 12–20 interaksi, bukan berubah
 acak di setiap pesan. Arnel memilih hingga enam contoh paling relevan untuk membantu membentuk balasan baru.
 
 ## Respons natural dan contoh percakapan
@@ -111,7 +140,8 @@ npm test
 ```
 
 Tes berjalan offline memakai percakapan buatan, tanpa menghubungkan WhatsApp atau memanggil
-Gemini. Tes memeriksa parsing, append, format lama, pemilihan contoh dan penyusunan prompt;
+Gemini. Tes dashboard memakai server HTTP lokal, database sementara dan memeriksa migrasi,
+riwayat, memory serta training. Tes memeriksa parsing, append, format lama, pemilihan contoh dan penyusunan prompt;
 kealamian jawaban model tetap perlu dicoba dengan obrolan nyata di perangkat pemilik.
 
 ## Kelanjutan cerita Arnel
@@ -130,6 +160,6 @@ Pemilik bot yang nomornya ada di `ALLOWED_NUMBER` dapat menyimpan memori secara 
 !ingatan
 ```
 
-`!ingat` menyimpan catatan di `data/memories.json`; `!ingatan` menampilkan hingga sepuluh
+`!ingat` menyimpan catatan di `data/arnel.sqlite3`; `!ingatan` menampilkan hingga sepuluh
 catatan terakhir. Memori dikirim ke Gemini hanya untuk membantu balasan dan pesan inisiatif yang
 relevan. Jangan simpan kata sandi, token, alamat lengkap, atau informasi sangat sensitif.

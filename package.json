@@ -6,10 +6,12 @@
   "description": "WhatsApp persona bot berbasis Baileys",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "check": "node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js",
+    "start": "node start.js",
+    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js",
     "test": "node --test",
-    "import-style": "node scripts/import-style.js"
+    "import-style": "node scripts/import-style.js",
+    "dashboard": "node start.js",
+    "bot": "node index.js"
   },
   "engines": {
     "node": ">=20"
@@ -18,6 +20,7 @@
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "dotenv": "^16.6.1",
     "pino": "^10.3.1",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "better-sqlite3": "^11.10.0"
   }
 }
