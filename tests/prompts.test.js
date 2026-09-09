@@ -28,7 +28,12 @@ test("production prompt loads old and paired imports together with owner correct
   db.saveTrainingExample("other", "udh pulang ini", "other chat private example", "teach");
   db.saveBehaviorRule("owner", "jangan paksa pertanyaan");
   const { buildSystemInstruction } = await import("../prompts.js");
+  db.saveArnelStory("owner", "gw lagi nyiapin camilan fiksi kemarin sore");
   const prompt = buildSystemInstruction("owner", "udh pulang ini");
+  const proactive = buildSystemInstruction("owner", "udh pulang ini", { proactive: true });
+  assert.ok(prompt.includes("gw lagi nyiapin camilan fiksi kemarin sore"));
+  assert.ok(!proactive.includes("gw lagi nyiapin camilan fiksi kemarin sore"));
+  assert.ok(proactive.includes('"pesan_sebelumnya":"udh pulang ini"'));
   assert.ok(prompt.includes('"pesan_sebelumnya":"udh pulang ini"'));
   assert.ok(prompt.includes('"gaya_saja_tanpa_konteks":"contoh ritme lama"'));
   assert.ok(prompt.includes("arnel: oalah"));

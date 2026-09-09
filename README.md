@@ -62,6 +62,11 @@ PROACTIVE_DAILY_MAX=5
 ```
 
 Bot juga akan memilih waktu acak dan mengirim pesan setelah percakapan sepi 2-4 jam.
+Kesempatan mengirim bukan kewajiban: jika hasilnya berulang atau tidak punya konteks yang
+wajar, giliran dilewati dan dicoba lagi paling cepat satu jam kemudian. Pesan inisiatif 24 jam
+terakhir dicatat agar pengulangan tetap bisa disaring setelah restart. Chat masuk saat pesan
+sedang disusun membatalkan pengiriman itu. Rencana lama tidak otomatis dianggap tertunda
+atau masih berlangsung. Sapaan memakai zona `TZ` jika diisi, default Asia/Jakarta.
 `ALLOWED_NUMBER` wajib diisi karena nomor tersebut menjadi tujuan chat inisiatif.
 
 ## Foto

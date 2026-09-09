@@ -5,10 +5,10 @@ import {
   getRelevantStyleExamples, getRelevantMemories, getRelevantExamples,
 } from "./db.js";
 
-export function buildSystemInstruction(chatId, query = "") {
+export function buildSystemInstruction(chatId, query = "", { proactive = false } = {}) {
   const relationship = getRelationshipContext(chatId);
   const rules = getBehaviorRules(chatId);
-  const arnelStories = getRelevantArnelStories(chatId, query, 6);
+  const arnelStories = proactive ? [] : getRelevantArnelStories(chatId, query, 6);
   const recentHistory = getHistory(chatId, 8);
   const recentReplies = recentHistory.filter((item) => item.role === "assistant").map((item) => item.content);
   const styleExamples = getRelevantStyleExamples(query, 8, recentReplies);
@@ -46,7 +46,7 @@ export function buildSystemInstruction(chatId, query = "") {
         ...arnelStories.map((item) => `- ${item.content}`),
         "Jaga kesinambungannya. Jika relevan boleh menyinggungnya. Jangan menebak kelanjutan atau detail yang belum ada; kalau tidak tahu, tidak perlu pura pura ingat.",
       ].join("\n")
-    : "Belum ada cerita Arnel yang perlu dilanjutkan.";
+    : proactive ? "Untuk inisiatif, gunakan riwayat bertimestamp dalam permintaan. Jangan menghidupkan kembali catatan cerita lama sebagai rencana yang masih berlangsung." : "Belum ada cerita Arnel yang perlu dilanjutkan.";
 
   const stylePriority = styleExamples.length
     ? "Prioritas akhir: contoh gaya chat manusia di atas lebih penting daripada kecenderungan jawaban asisten yang rapi. Jawab seperti chat spontan, jangan membuat rentetan pertanyaan atau kalimat basa basi."

@@ -12,6 +12,7 @@ import makeWASocket, {
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import { buildSystemInstruction } from "./prompts.js";
+import { buildProactivePrompt, recentInitiatives, proactiveDecision } from "./proactive.js";
 import {
   getBehaviorRules,
   getHistory,
@@ -60,6 +61,7 @@ if (!CONNECTION_ONLY && !process.env.GEMINI_API_KEY) {
 
 let reconnectTimer;
 let proactiveTimer;
+let proactiveRunning = false;
 let starting = false;
 let activeSocket;
 let targetJid;
@@ -97,6 +99,7 @@ function localTime(date = new Date()) {
 function touchActivity() {
   const state = readProactiveState();
   state.lastActivityAt = Date.now();
+  state.activityRevision = (state.activityRevision || 0) + 1;
   state.nextIdleAt = Date.now() + randomHours(2, 4) * 60 * 60 * 1000;
   writeProactiveState(state);
 }
@@ -184,9 +187,9 @@ async function fetchGeminiWithRetry(url, options) {
   throw new Error(`Tidak bisa terhubung ke Gemini setelah 3 percobaan: ${detail}`);
 }
 
-async function requestGemini(chatId, userParts, trainingQuery = "") {
+async function requestGemini(chatId, userParts, trainingQuery = "", options = {}) {
   const history = cleanHistory(getHistory(chatId, MAX_HISTORY));
-  const systemInstruction = buildSystemInstruction(chatId, trainingQuery);
+  const systemInstruction = buildSystemInstruction(chatId, trainingQuery, options);
   const response = await fetchGeminiWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
     {
@@ -284,38 +287,10 @@ function getStickerReply(stickerMessage) {
   return replies[seed % replies.length];
 }
 
-function recentConversationSnapshot(chatId, limit = 8) {
-  return getHistory(chatId, limit)
-    .map((item) => `${item.role === "assistant" ? "arnel" : "user"}: ${item.content}`)
-    .join("\n");
-}
-
-function recentAssistantOpeners(chatId, limit = 6) {
-  return getHistory(chatId, limit)
-    .filter((item) => item.role === "assistant")
-    .map((item) => item.content.trim().toLowerCase().split(/\s+/)[0])
-    .filter(Boolean)
-    .join(", ");
-}
-
-async function createProactiveMessage(chatId, reason) {
-  const recentChat = recentConversationSnapshot(chatId);
-  const recentOpeners = recentAssistantOpeners(chatId);
-  return askGemini(
-    chatId,
-    [
-      `Mulai percakapan duluan sekarang. Alasannya ${reason}.`,
-      "Pakai percakapan terbaru di bawah sebagai sumber kebenaran dan sambung topik terakhir kalau cocok.",
-      "Jangan tanya hal yang bertentangan dengan info terbaru. Contoh: kalau user sudah bilang habis upacara/sekolah, jangan tanya sudah bangun belum.",
-      "Jangan pura-pura user menghilang atau menuduh sibuk bila obrolan terakhir masih baru.",
-      "Jangan mulai dengan kata eh kecuali benar-benar alami; variasikan pembuka dan hindari pembuka yang baru dipakai Arnel.",
-      `Pembuka Arnel yang baru dipakai: ${recentOpeners || "belum ada"}.`,
-      "Biasanya satu bubble pendek, tetapi boleh 2 atau 3 bubble kalau memang ada hal kecil yang ingin diceritakan. Jangan menjelaskan bahwa ini pesan terjadwal.",
-      "",
-      "Percakapan terbaru:",
-      recentChat || "(belum ada percakapan)",
-    ].join("\n"),
-  );
+async function createProactiveMessage(chatId, previous) {
+  const history = getHistory(chatId, MAX_HISTORY);
+  const query = history.filter((item) => item.role === "user").at(-1)?.content || "";
+  return requestGemini(chatId, [{ text: buildProactivePrompt(history, previous) }], query, { proactive: true });
 }
 
 async function resolveTargetJid(sock) {
@@ -355,6 +330,7 @@ async function runProactiveCheck(sock) {
   const belowLimit = (state.sentToday || 0) < PROACTIVE_DAILY_MAX;
 
   if (
+    nowMs < (state.nextAttemptAt || 0) ||
     !(fixedDue || idleDue || randomDue) ||
     !enoughGap ||
     recentlyActive ||
@@ -364,26 +340,54 @@ async function runProactiveCheck(sock) {
     return;
   }
 
-  const reason = fixedDue ? `jadwal ${currentTime}` : idleDue ? "sudah lama tidak ada chat" : "waktu acak";
+  writeProactiveState(state);
   const jid = await resolveTargetJid(sock);
-  const message = await createProactiveMessage(jid, reason);
-  const parts = message.split("||").map((part) => part.trim()).filter(Boolean).slice(0, 2);
-
-  for (const part of parts) {
-    await sock.sendMessage(jid, { text: part });
-    await sleep(500);
+  const previous = recentInitiatives(state, getHistory(jid, MAX_HISTORY), nowMs);
+  const message = await createProactiveMessage(jid, previous);
+  const latest = readProactiveState();
+  const decision = proactiveDecision(message, previous, state.activityRevision || 0, latest.activityRevision || 0);
+  if (sock !== activeSocket || !sock.user) return;
+  if (decision !== "send") {
+    latest.nextAttemptAt = Date.now() + 60 * 60 * 1000;
+    if (fixedDue) {
+      latest.sentFixedKeys ||= [];
+      if (!latest.sentFixedKeys.includes(fixedKey)) latest.sentFixedKeys.push(fixedKey);
+    }
+    writeProactiveState(latest);
+    console.log(`[inisiatif dilewati] ${decision}`);
+    return;
   }
 
-  saveMessage(jid, "assistant", message);
-  saveArnelStory(jid, message);
-  state.lastProactiveAt = nowMs;
-  state.lastActivityAt = nowMs;
-  state.sentToday = (state.sentToday || 0) + 1;
-  state.nextIdleAt = nowMs + randomHours(2, 4) * 60 * 60 * 1000;
-  state.nextRandomAt = nowMs + randomHours(3, 6) * 60 * 60 * 1000;
-  if (fixedDue) state.sentFixedKeys.push(fixedKey);
-  writeProactiveState(state);
-  console.log(`[inisiatif] ${jid}: ${message}`);
+  const parts = message.split("||").map((part) => part.trim()).filter(Boolean).slice(0, 2);
+  const sent = [];
+  try {
+    for (const part of parts) {
+      // Incoming chat can also arrive between bubbles.
+      if ((readProactiveState().activityRevision || 0) !== (state.activityRevision || 0)) break;
+      await sock.sendMessage(jid, { text: part });
+      sent.push(part);
+      if (sent.length < parts.length) await sleep(500);
+    }
+  } finally {
+    if (sent.length) {
+      const sentText = sent.join(" || ");
+      const sentAt = Date.now();
+      saveMessage(jid, "assistant", sentText);
+      saveArnelStory(jid, sentText);
+      const current = readProactiveState();
+      current.lastProactiveAt = sentAt;
+      current.lastActivityAt = Math.max(current.lastActivityAt || 0, sentAt);
+      current.sentToday = (current.sentToday || 0) + 1;
+      current.nextIdleAt = sentAt + randomHours(2, 4) * 60 * 60 * 1000;
+      current.nextRandomAt = sentAt + randomHours(3, 6) * 60 * 60 * 1000;
+      current.nextAttemptAt = 0;
+      current.recentMessages = [...previous, { content: sentText, createdAt: sentAt }].slice(-8);
+      current.sentFixedKeys ||= [];
+      if (fixedDue && !current.sentFixedKeys.includes(fixedKey)) current.sentFixedKeys.push(fixedKey);
+      writeProactiveState(current);
+      console.log(`[inisiatif] ${jid}: ${sentText}`);
+    }
+  }
 }
 
 function startProactiveScheduler(sock) {
@@ -396,8 +400,12 @@ function startProactiveScheduler(sock) {
   state.nextRandomAt ||= Date.now() + randomHours(3, 6) * 60 * 60 * 1000;
   writeProactiveState(state);
 
-  proactiveTimer = setInterval(() => {
-    runProactiveCheck(sock).catch((error) => console.error("Gagal chat duluan:", error.message));
+  proactiveTimer = setInterval(async () => {
+    if (proactiveRunning) return;
+    proactiveRunning = true;
+    try { await runProactiveCheck(sock); }
+    catch (error) { console.error("Gagal chat duluan:", error.message); }
+    finally { proactiveRunning = false; }
   }, 60 * 1000);
   console.log(`Chat duluan aktif. Jadwal: ${PROACTIVE_TIMES.join(", ")}; maksimal ${PROACTIVE_DAILY_MAX}/hari.`);
 }
