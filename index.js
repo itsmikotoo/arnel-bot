@@ -274,7 +274,7 @@ function getStickerReply(stickerMessage) {
     "stiker apaan itu",
     "wkwk apasih",
     "ih ngirim ginian",
-    "aneh bgt stiker lu",
+    "aneh bgt stiker kamu",
     "paham paham",
   ];
   const animatedReplies = [
@@ -596,11 +596,11 @@ async function startWhatsApp() {
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!atur")) {
             const rule = normalizedText.replace(/^!atur\s*:?[\s]*/i, "").trim();
             if (!rule) {
-              await activeSocket.sendMessage(chatId, { text: "tulis !atur terus aturan yang lu mau" });
+              await activeSocket.sendMessage(chatId, { text: "tulis !atur terus aturan yang kamu mau" });
               continue;
             }
             saveBehaviorRule(chatId, rule);
-            await activeSocket.sendMessage(chatId, { text: "okeh aturan ini gw pegang" });
+            await activeSocket.sendMessage(chatId, { text: "okeh aturan ini aku pegang" });
             console.log(`[aturan] ${chatId}: ${rule}`);
             continue;
           }
@@ -608,8 +608,8 @@ async function startWhatsApp() {
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase() === "!ingatan") {
             const memories = getRelevantMemories(chatId, "", 10);
             const output = memories.length
-              ? ["yang gw inget", ...memories.map((item, index) => `${index + 1}. ${item.content}`)].join("\n")
-              : "belom ada yang gw simpen";
+              ? ["yang aku inget", ...memories.map((item, index) => `${index + 1}. ${item.content}`)].join("\n")
+              : "belom ada yang aku simpen";
             await activeSocket.sendMessage(chatId, { text: output });
             continue;
           }
@@ -617,11 +617,11 @@ async function startWhatsApp() {
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!ingat")) {
             const memory = normalizedText.replace(/^!ingat\s*:?[\s]*/i, "").trim();
             if (!memory) {
-              await activeSocket.sendMessage(chatId, { text: "tulis !ingat terus hal yang mau gw inget" });
+              await activeSocket.sendMessage(chatId, { text: "tulis !ingat terus hal yang mau aku inget" });
               continue;
             }
             saveMemory(chatId, memory);
-            await activeSocket.sendMessage(chatId, { text: "okeh gw simpen" });
+            await activeSocket.sendMessage(chatId, { text: "okeh aku simpen" });
             console.log(`[memory] ${chatId}: ${memory}`);
             continue;
           }
@@ -634,7 +634,7 @@ async function startWhatsApp() {
             }
             saveTrainingExample(chatId, exchange.input, exchange.output, "good");
             recordFeedback(chatId, "good");
-            await activeSocket.sendMessage(chatId, { text: "okeh gw inget yang ini" });
+            await activeSocket.sendMessage(chatId, { text: "okeh aku inget yang ini" });
             console.log(`[trainer] good: ${exchange.input} -> ${exchange.output}`);
             continue;
           }
@@ -642,7 +642,7 @@ async function startWhatsApp() {
           if (!imageMessage && !stickerMessage && trainerAllowed && normalizedText.toLowerCase().startsWith("!teach")) {
             const desiredReply = normalizedText.replace(/^!teach\s*:?[\s]*/i, "").trim();
             if (!desiredReply) {
-              await activeSocket.sendMessage(chatId, { text: "tulis !teach terus jawaban yang lu mau" });
+              await activeSocket.sendMessage(chatId, { text: "tulis !teach terus jawaban yang kamu mau" });
               continue;
             }
             const exchange = getLastExchange(chatId);
@@ -653,7 +653,7 @@ async function startWhatsApp() {
             saveTrainingExample(chatId, exchange.input, desiredReply, "teach");
             replaceLastAssistant(chatId, desiredReply);
             recordFeedback(chatId, "teach");
-            await activeSocket.sendMessage(chatId, { text: "nah gitu ya || gw inget" });
+            await activeSocket.sendMessage(chatId, { text: "nah gitu ya || aku inget" });
             console.log(`[trainer] teach: ${exchange.input} -> ${desiredReply}`);
             continue;
           }

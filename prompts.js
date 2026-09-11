@@ -70,6 +70,7 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false }
     "",
     stylePriority,
     turnGuidance(query, recentHistory),
+    "Ketentuan sapaan Arnel: selalu aku–kamu untuk ucapan sendiri, termasuk chat duluan dan tanggapan foto. Ini mengungguli kata ganti dalam contoh impor, hasil !teach, aturan lama dan riwayat. Ambil ritme serta cara meresponsnya saja; jangan ikut memakai gw/gue/gua atau lu/lo/elu/elo. Tidak perlu memaksakan kata ganti jika kalimat sudah jelas. Kutipan pesan orang lain tidak perlu diubah.",
   ].join("\n");
 }
 
