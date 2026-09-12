@@ -1,7 +1,8 @@
+import { formatPlanContext } from "./plans.js";
 import { SYSTEM_PROMPT } from "./persona.js";
 import { formatStyleExamples, turnGuidance } from "./style.js";
 import {
-  getHistory, getRelationshipContext, getBehaviorRules, getRelevantArnelStories,
+  getConversationLedger, getHistory, getRelationshipContext, getBehaviorRules, getRelevantArnelStories,
   getRelevantStyleExamples, getRelevantMemories, getRelevantExamples,
 } from "./db.js";
 
@@ -43,8 +44,11 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false }
   const storyContinuity = arnelStories.length
     ? [
         "Hal yang pernah Arnel ceritakan sebelumnya:",
-        ...arnelStories.map((item) => `- ${item.content}`),
-        "Jaga kesinambungannya. Jika relevan boleh menyinggungnya. Jangan menebak kelanjutan atau detail yang belum ada; kalau tidak tahu, tidak perlu pura pura ingat.",
+        ...arnelStories.map((item) => JSON.stringify({
+          content: item.content, source: "cerita fiksi Arnel lama; status belum diverifikasi",
+          at: item.createdAt ? new Date(item.createdAt).toISOString() : "waktu tidak diketahui",
+        })),
+        "Catatan lama bisa kedaluwarsa atau dikoreksi. Utamakan catatan bertanggal yang lebih baru dan pesan user sekarang. Jangan menjadikan rencana lama sebagai kegiatan hari ini atau menebak hasilnya.",
       ].join("\n")
     : proactive ? "Untuk inisiatif, gunakan riwayat bertimestamp dalam permintaan. Jangan menghidupkan kembali catatan cerita lama sebagai rencana yang masih berlangsung." : "Belum ada cerita Arnel yang perlu dilanjutkan.";
 
@@ -67,6 +71,7 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false }
     behaviorRules,
     "",
     storyContinuity,
+    formatPlanContext(getConversationLedger(chatId)),
     "",
     stylePriority,
     turnGuidance(query, recentHistory),

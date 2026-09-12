@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { selectStyleExamples } from "./style.js";
+import { asksForSpace, buildPlanLedger } from "./plans.js";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const SQLITE_FILE = path.join(DATA_DIR, "arnel.sqlite3");
@@ -21,6 +22,23 @@ db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS conversation_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content TEXT NOT NULL,
+    source_key TEXT,
+    created_at INTEGER NOT NULL,
+    followed_at INTEGER,
+    UNIQUE(chat_id, source_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_notes_chat_time ON conversation_notes(chat_id, created_at DESC, id DESC);
+  CREATE TABLE IF NOT EXISTS initiative_context (
+    chat_id TEXT PRIMARY KEY,
+    waiting_for_user INTEGER NOT NULL DEFAULT 0,
+    last_user_at INTEGER NOT NULL DEFAULT 0,
+    last_initiative_at INTEGER NOT NULL DEFAULT 0
+  );
   CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -697,5 +715,42 @@ export function correctDashboardExchange(chatId, assistantId, output) {
     db.prepare("UPDATE messages SET content = ?, corrected_at = ? WHERE id = ?").run(corrected, Date.now(), assistantId);
     saveTrainingExample(chatId, input.content, corrected, "teach");
     recordFeedback(chatId, "teach");
+  })();
+}
+
+// Capture raw, first-party messages before generation so failed API calls do not lose plans.
+export function saveConversationNote(chatId, role, content, { sourceKey = null, at = Date.now(), receivedAt = at, forwarded = false } = {}) {
+  const text = String(content || '').trim().slice(0, 4000);
+  if (role === 'user' && text.startsWith('!')) return;
+  db.transaction(() => {
+    const inserted = db.prepare(`INSERT OR IGNORE INTO conversation_notes
+      (chat_id, role, content, source_key, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(chatId, role, forwarded ? '[pesan diteruskan; bukan rencana pribadi]' : text, sourceKey, at);
+    if (!inserted.changes || role !== 'user') return;
+    db.prepare(`INSERT INTO initiative_context(chat_id, waiting_for_user, last_user_at)
+      VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET
+      waiting_for_user = excluded.waiting_for_user, last_user_at = excluded.last_user_at
+      WHERE excluded.last_user_at >= initiative_context.last_user_at`)
+      .run(chatId, forwarded ? 0 : Number(asksForSpace(text)), receivedAt);
+  })();
+}
+
+export function getConversationLedger(chatId, now = Date.now()) {
+  const notes = db.prepare(`SELECT id, role, content, created_at AS createdAt, followed_at AS followedAt
+    FROM conversation_notes WHERE chat_id = ? AND created_at >= ?
+    ORDER BY created_at DESC, id DESC LIMIT 400`).all(chatId, now - 60 * 86400000).reverse();
+  return buildPlanLedger(notes, now);
+}
+
+export function getInitiativeContext(chatId) {
+  return db.prepare(`SELECT waiting_for_user AS waitingForUser, last_user_at AS lastUserAt,
+    last_initiative_at AS lastInitiativeAt FROM initiative_context WHERE chat_id = ?`).get(chatId) || {};
+}
+
+export function recordInitiativeSent(chatId, followupId = null, at = Date.now()) {
+  db.transaction(() => {
+    db.prepare(`INSERT INTO initiative_context(chat_id, last_initiative_at) VALUES (?, ?)
+      ON CONFLICT(chat_id) DO UPDATE SET last_initiative_at = excluded.last_initiative_at`).run(chatId, at);
+    if (followupId != null) db.prepare('UPDATE conversation_notes SET followed_at = ? WHERE id = ? AND chat_id = ?').run(at, followupId, chatId);
   })();
 }

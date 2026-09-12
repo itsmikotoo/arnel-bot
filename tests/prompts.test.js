@@ -29,6 +29,8 @@ test("production prompt loads old and paired imports together with owner correct
   db.saveBehaviorRule("owner", "jangan paksa pertanyaan");
   const { buildSystemInstruction } = await import("../prompts.js");
   db.saveArnelStory("owner", "gw lagi nyiapin camilan fiksi kemarin sore");
+  db.saveConversationNote("owner", "user", "besok ujian fisika", { at: Date.now() });
+  db.saveConversationNote("other", "user", "besok ujian kimia rahasia", { at: Date.now() });
   const prompt = buildSystemInstruction("owner", "udh pulang ini");
   const proactive = buildSystemInstruction("owner", "udh pulang ini", { proactive: true });
   assert.ok(prompt.includes("gw lagi nyiapin camilan fiksi kemarin sore"));
@@ -40,5 +42,10 @@ test("production prompt loads old and paired imports together with owner correct
   assert.ok(prompt.includes("jangan paksa pertanyaan"));
   assert.ok(prompt.includes("Beberapa balasan terakhir sudah bertanya"));
   assert.ok(!prompt.includes("other chat private example"));
+  for (const rendered of [prompt, proactive]) {
+    assert.ok(rendered.includes('"status":"planned"'));
+    assert.ok(rendered.includes('besok ujian fisika'));
+    assert.ok(!rendered.includes('ujian kimia rahasia'));
+  }
   assert.equal(fs.readFileSync(stylePath, "utf8"), styleData);
 });

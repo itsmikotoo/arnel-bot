@@ -11,9 +11,11 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
+import { followupCandidate, initiativeGate, localDay } from "./plans.js";
 import { buildSystemInstruction } from "./prompts.js";
 import { buildProactivePrompt, recentInitiatives, proactiveDecision } from "./proactive.js";
 import {
+  getConversationLedger, getInitiativeContext, saveConversationNote, recordInitiativeSent,
   getBehaviorRules,
   getHistory,
   getRelevantStyleExamples,
@@ -89,11 +91,11 @@ function randomHours(min, max) {
 }
 
 function todayKey(date = new Date()) {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  return localDay(date);
 }
 
 function localTime(date = new Date()) {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return new Intl.DateTimeFormat("en-GB", { timeZone: process.env.TZ || "Asia/Jakarta", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
 }
 
 function touchActivity() {
@@ -287,10 +289,10 @@ function getStickerReply(stickerMessage) {
   return replies[seed % replies.length];
 }
 
-async function createProactiveMessage(chatId, previous) {
+async function createProactiveMessage(chatId, previous, followup) {
   const history = getHistory(chatId, MAX_HISTORY);
   const query = history.filter((item) => item.role === "user").at(-1)?.content || "";
-  return requestGemini(chatId, [{ text: buildProactivePrompt(history, previous) }], query, { proactive: true });
+  return requestGemini(chatId, [{ text: buildProactivePrompt(history, previous, Date.now(), followup) }], query, { proactive: true });
 }
 
 async function resolveTargetJid(sock) {
@@ -342,8 +344,18 @@ async function runProactiveCheck(sock) {
 
   writeProactiveState(state);
   const jid = await resolveTargetJid(sock);
+  const context = getInitiativeContext(jid);
+  // Recover the unanswered-message guard for installations upgraded from JSON-only state.
+  const lastUser = getHistory(jid, MAX_HISTORY).filter(item => item.role === "user").at(-1);
+  const gate = initiativeGate({
+    ...context,
+    lastUserAt: Math.max(context.lastUserAt || 0, lastUser?.createdAt || 0),
+    lastInitiativeAt: Math.max(context.lastInitiativeAt || 0, state.lastProactiveAt || 0),
+  }, nowMs);
+  if (gate) return;
+  const followup = followupCandidate(getConversationLedger(jid, nowMs), nowMs);
   const previous = recentInitiatives(state, getHistory(jid, MAX_HISTORY), nowMs);
-  const message = await createProactiveMessage(jid, previous);
+  const message = await createProactiveMessage(jid, previous, followup);
   const latest = readProactiveState();
   const decision = proactiveDecision(message, previous, state.activityRevision || 0, latest.activityRevision || 0);
   if (sock !== activeSocket || !sock.user) return;
@@ -360,10 +372,12 @@ async function runProactiveCheck(sock) {
 
   const parts = message.split("||").map((part) => part.trim()).filter(Boolean).slice(0, 2);
   const sent = [];
+  let lastSendStartedAt;
   try {
     for (const part of parts) {
       // Incoming chat can also arrive between bubbles.
       if ((readProactiveState().activityRevision || 0) !== (state.activityRevision || 0)) break;
+      lastSendStartedAt = Date.now();
       await sock.sendMessage(jid, { text: part });
       sent.push(part);
       if (sent.length < parts.length) await sleep(500);
@@ -371,9 +385,11 @@ async function runProactiveCheck(sock) {
   } finally {
     if (sent.length) {
       const sentText = sent.join(" || ");
-      const sentAt = Date.now();
+      const sentAt = lastSendStartedAt;
       saveMessage(jid, "assistant", sentText);
       saveArnelStory(jid, sentText);
+      saveConversationNote(jid, "assistant", sentText, { at: sentAt });
+      recordInitiativeSent(jid, followup?.id, sentAt);
       const current = readProactiveState();
       current.lastProactiveAt = sentAt;
       current.lastActivityAt = Math.max(current.lastActivityAt || 0, sentAt);
@@ -461,20 +477,29 @@ async function generateAndSendReply(message, chatId, text, imageMessage, sticker
   }
 
   saveMessage(chatId, "user", userContent);
-  saveMessage(chatId, "assistant", reply);
-  saveArnelStory(chatId, reply);
 
   const parts = splitReply(reply);
   const quoteFirstReply = shouldReplyWithQuote(message, text, parts);
-  for (const [index, part] of parts.entries()) {
-    await activeSocket.sendPresenceUpdate("composing", chatId);
-    await sleep(Math.min(900 + part.length * 25, 3500));
-    await activeSocket.sendMessage(
-      chatId,
-      { text: part },
-      index === 0 && quoteFirstReply ? { quoted: message } : undefined,
-    );
-    if (parts.length > 1) await sleep(350 + Math.random() * 450);
+  const sent = [];
+  try {
+    for (const [index, part] of parts.entries()) {
+      await activeSocket.sendPresenceUpdate("composing", chatId);
+      await sleep(Math.min(900 + part.length * 25, 3500));
+      await activeSocket.sendMessage(
+        chatId,
+        { text: part },
+        index === 0 && quoteFirstReply ? { quoted: message } : undefined,
+      );
+      sent.push(part);
+      if (parts.length > 1) await sleep(350 + Math.random() * 450);
+    }
+  } finally {
+    if (sent.length) {
+      const delivered = sent.join(" || ");
+      saveMessage(chatId, "assistant", delivered);
+      saveArnelStory(chatId, delivered);
+      saveConversationNote(chatId, "assistant", delivered);
+    }
   }
   await activeSocket.sendPresenceUpdate("paused", chatId);
 }
@@ -580,6 +605,13 @@ async function startWhatsApp() {
             `[masuk] ${chatId}: ${imageMessage ? "[foto]" : stickerMessage ? "[stiker]" : text}`,
           );
           touchActivity();
+          saveConversationNote(chatId, "user", messageText || (imageMessage ? "[foto]" : "[stiker]"), {
+            sourceKey: message.key.id ? `wa:${message.key.id}` : null,
+            forwarded: contextHint.includes("diteruskan"),
+            receivedAt: Date.now(),
+            at: Number(message.messageTimestamp) > 0 && Number(message.messageTimestamp) * 1000 <= Date.now()
+              ? Number(message.messageTimestamp) * 1000 : Date.now(),
+          });
 
           const trainerAllowed = Boolean(ALLOWED_NUMBER) && isAllowed(message);
           const normalizedText = messageText.trim();

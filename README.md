@@ -168,3 +168,37 @@ Pemilik bot yang nomornya ada di `ALLOWED_NUMBER` dapat menyimpan memori secara 
 `!ingat` menyimpan catatan di `data/arnel.sqlite3`; `!ingatan` menampilkan hingga sepuluh
 catatan terakhir. Memori dikirim ke Gemini hanya untuk membantu balasan dan pesan inisiatif yang
 relevan. Jangan simpan kata sandi, token, alamat lengkap, atau informasi sangat sensitif.
+
+## Ingatan rencana dan ruang untuk membalas
+
+Mulai versi ini, pesan asli yang masuk dicatat sebelum panggilan Gemini di tabel
+`conversation_notes` dalam database yang sama. Pesan yang diteruskan tidak diambil sebagai
+rencana pribadi; kutipan/contoh impor juga tidak menjadi sumber rencana. Cerita Arnel baru
+masuk sebagai catatan setelah bubble berhasil dikirim. Riwayat dan impor lama tetap ada;
+catatan lama diberi waktu asal dan label status belum diverifikasi.
+
+Catatan menyertakan pembicara, waktu dan teks asli. Deteksi sederhana membedakan rencana,
+pernyataan selesai/berlangsung, pembatalan, serta perubahan yang belum jelas. Pembaruan
+hanya dicocokkan ke rencana pembicara yang sama dengan topik yang cukup cocok. Waktu lewat
+berarti hasil belum diketahui, bukan otomatis selesai, gagal atau tertunda. Ini pencocokan
+bahasa terbatas, bukan pemahaman sempurna semua slang. Gemini tetap harus mengikuti sumber
+asli dan koreksi terbaru. Konteks menggunakan hingga 400 pesan dalam 60 hari terakhir;
+maksimal 16 catatan masuk prompt, tanpa permintaan API ekstraksi tambahan.
+
+- “nanti aku kabarin”, “ntar gw kabarin”, atau “jangan chat dulu” menahan semua inisiatif
+  sampai ada pesan biasa berikutnya dari user. Perintah `!teach`/`!ingatan` tidak membuka
+  jeda ini. Jeda tetap tersimpan setelah restart.
+- Setelah satu inisiatif terkirim, bot menunggu user membalas sebelum mengirim inisiatif
+  berikutnya, sekalipun jadwal lain tiba. Chat normal tetap dibalas.
+- Follow-up awal mendukung rencana ujian/ulangan/tes, wawancara/interview, presentasi dan
+  lomba yang menyebut **besok**, **lusa**, atau **hari ini**. Bot memilih maksimal satu
+  rencana pada kesempatan inisiatif biasa, mulai pukul 19:00 pada tanggal kegiatan sampai
+  akhir hari berikutnya. Jam ini adalah batas menanyakan kabar, bukan asumsi acara selesai.
+  Rencana tanpa tanggal jelas tidak otomatis dijadwalkan. Ini bukan fitur pengingat alarm.
+- Kalau rencana dibatalkan, diperbarui secara ambigu, atau sudah mendapat kesempatan
+  follow-up yang terkirim, bot tidak memilihnya lagi. Model boleh memilih skip; tidak ada
+  pesan yang wajib dikirim. Batas harian, jeda aktivitas, dan pemeriksaan pesan baru tetap berlaku.
+
+Tanggal dan jadwal memakai `TZ`, default `Asia/Jakarta`. Tidak perlu mengimpor ulang chat
+atau memasang dependensi baru. Uji kealamian jawaban dengan chat nyata setelah deploy;
+tes otomatis hanya memverifikasi pencatatan, waktu, penyaringan dan aturan pengiriman.
