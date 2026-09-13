@@ -166,3 +166,29 @@ test("corrections and requests for longer explanations are handled separately", 
   assert.ok(turnGuidance("bukan gw di rumah dari tadi").includes("tanpa defensif"));
   assert.ok(turnGuidance("ceritain dong tadi kenapa").includes("beri isi yang cukup"));
 });
+
+test("bare greetings exclude sleep assumptions without changing substantive chat retrieval", async () => {
+  const { isGreetingOnly, conversationKind } = await import('../style.js');
+  for (const text of ['pagi nel', 'pagiii nelll', 'pagi nel\n[ini adalah balasan ke chat sebelumnya]', 'halo', 'malem arnel']) {
+    assert.equal(isGreetingOnly(text), true, text);
+    assert.equal(conversationKind(text), 'greeting');
+  }
+  for (const text of ['pagi nel aku baru bangun', 'pagi tadi aku ujian', 'pagi nel\nada kelas hari ini?', 'pagi nel\n[ini pesan yang diteruskan dari chat lain]']) {
+    assert.equal(isGreetingOnly(text), false, text);
+  }
+  const samples = [
+    { input: 'pagi nel', content: 'pagi juga || tumben udah bangun jam segini' },
+    { content: 'udah sarapan belum' },
+    { input: 'pagi nel', content: 'pagii' },
+  ];
+  const original = JSON.stringify(samples);
+  assert.deepEqual(selectStyleExamples(samples, 'pagi nel', 8).map(item => item.content), ['pagii']);
+  assert.equal(selectStyleExamples(samples, 'aku baru bangun', 8).length, 3);
+  assert.equal(JSON.stringify(samples), original);
+});
+
+test("greeting guidance does not force a new topic or apply to a greeting with a real question", () => {
+  assert.ok(turnGuidance('pagi nel').includes('Pesan ini hanya sapaan'));
+  assert.ok(turnGuidance('pagi nel').includes('Jangan mengoreksi sapaan user'));
+  assert.ok(!turnGuidance('pagi nel hari ini ada kelas?').includes('Pesan ini hanya sapaan'));
+});

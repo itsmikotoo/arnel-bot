@@ -1,12 +1,15 @@
 import { formatPlanContext } from "./plans.js";
 import { SYSTEM_PROMPT } from "./persona.js";
-import { formatStyleExamples, turnGuidance } from "./style.js";
+import { formatStyleExamples, turnGuidance, isGreetingOnly, greetingExampleFits } from "./style.js";
 import {
   getConversationLedger, getHistory, getRelationshipContext, getBehaviorRules, getRelevantArnelStories,
   getRelevantStyleExamples, getRelevantMemories, getRelevantExamples,
 } from "./db.js";
 
-export function buildSystemInstruction(chatId, query = "", { proactive = false } = {}) {
+export function buildSystemInstruction(chatId, query = "", { proactive = false, now = Date.now() } = {}) {
+  const greeting = !proactive && isGreetingOnly(query);
+  const timeZone = process.env.TZ || "Asia/Jakarta";
+  const localTime = new Intl.DateTimeFormat("id-ID", { timeZone, dateStyle: "full", timeStyle: "short" }).format(now);
   const relationship = getRelationshipContext(chatId);
   const rules = getBehaviorRules(chatId);
   const arnelStories = proactive ? [] : getRelevantArnelStories(chatId, query, 6);
@@ -14,7 +17,7 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false }
   const recentReplies = recentHistory.filter((item) => item.role === "assistant").map((item) => item.content);
   const styleExamples = getRelevantStyleExamples(query, 8, recentReplies);
   const memories = getRelevantMemories(chatId, query, 6);
-  const examples = getRelevantExamples(chatId, query, 6);
+  const examples = getRelevantExamples(chatId, query, 6).filter(item => !greeting || greetingExampleFits(item.output));
   const memoryContext = memories.length
     ? [
         "Hal yang Arnel ingat tentang lawan bicara:",
@@ -71,11 +74,11 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false }
     behaviorRules,
     "",
     storyContinuity,
-    formatPlanContext(getConversationLedger(chatId)),
+    formatPlanContext(getConversationLedger(chatId, now), now),
+    `Waktu lokal sekarang (${timeZone}): ${localTime}. Waktu bukan bukti kapan user bangun atau apa kegiatannya.`,
     "",
     stylePriority,
-    turnGuidance(query, recentHistory),
+    turnGuidance(proactive ? "" : query, recentHistory),
     "Ketentuan sapaan Arnel: selalu aku–kamu untuk ucapan sendiri, termasuk chat duluan dan tanggapan foto. Ini mengungguli kata ganti dalam contoh impor, hasil !teach, aturan lama dan riwayat. Ambil ritme serta cara meresponsnya saja; jangan ikut memakai gw/gue/gua atau lu/lo/elu/elo. Tidak perlu memaksakan kata ganti jika kalimat sudah jelas. Kutipan pesan orang lain tidak perlu diubah.",
   ].join("\n");
 }
-

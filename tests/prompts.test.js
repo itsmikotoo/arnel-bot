@@ -47,5 +47,12 @@ test("production prompt loads old and paired imports together with owner correct
     assert.ok(rendered.includes('besok ujian fisika'));
     assert.ok(!rendered.includes('ujian kimia rahasia'));
   }
+  db.saveTrainingExample("owner", "pagi nel", "pagi juga || tumben udah bangun jam segini", "teach");
+  const greeting = buildSystemInstruction("owner", "pagi nel", { now: Date.parse("2026-09-13T06:03:00Z") });
+  assert.ok(greeting.includes("Pesan ini hanya sapaan"));
+  assert.ok(!greeting.includes("arnel: pagi juga || tumben udah bangun jam segini"));
+  assert.ok(greeting.includes("Waktu lokal sekarang"));
+  const initiated = buildSystemInstruction("owner", "pagi nel", { proactive: true });
+  assert.ok(!initiated.includes("Pesan ini hanya sapaan"));
   assert.equal(fs.readFileSync(stylePath, "utf8"), styleData);
 });
