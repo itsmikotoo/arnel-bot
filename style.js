@@ -33,7 +33,7 @@ export function hasRejectedChatPattern(text = "") {
       || /\byang penting kamu\b/.test(value)
       || /\baku di sini kok\b/.test(value)
       || /\bgpp santai aja\b/.test(value)
-      || /\bsemoga\b/.test(value);
+      || /\bsemoga (?:ini |itu )?(?:bisa )?membantu\b/.test(value);
   });
 }
 

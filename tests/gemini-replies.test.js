@@ -51,7 +51,7 @@ test("clean reply is generated once and logged with multiline input and default 
   assert.equal(entry.flaggedPattern, false);
 });
 
-for (const retry of ["aku salah nangkep", "semoga besok lancar"]) {
+for (const retry of ["aku salah nangkep", "semoga ini bisa membantu"]) {
   test(`flagged reply retries only once and returns retry unchanged: ${retry}`, async t => {
     const f = fixture(t, ["wah cepet juga", retry], { GEMINI_TEMPERATURE: "0.7" });
     assert.equal(await f.context.askGemini("chat-b", "udah kelar"), retry);
@@ -74,10 +74,10 @@ test("shared request logging covers image and proactive responses without image 
 });
 
 test("additional stock phrases match normalized words without partial-word false positives", () => {
-  for (const text of ["semangat ya", "yg penting kamu sehat", "aku di sini kok", "GPP, santai aja", "iya || semoga lancar", "iya\nSEMOGA lancar"]) {
+  for (const text of ["semangat ya", "yg penting kamu sehat", "aku di sini kok", "GPP, santai aja", "iya || semoga membantu", "iya\nSEMOGA ini bisa membantu", "semoga itu membantu", "semoga bisa membantu", "semoga ini membantu", "semoga itu bisa membantu"]) {
     assert.equal(hasRejectedChatPattern(text), true, text);
   }
-  for (const text of ["semangatin aku", "aku di sini", "yang penting filenya ketemu", "semogaku", "wahyu"]) {
+  for (const text of ["semangatin aku", "aku di sini", "yang penting filenya ketemu", "semogaku", "wahyu", "semoga cepet sembuh", "semoga besok lancar", "iya || semoga lancar"]) {
     assert.equal(hasRejectedChatPattern(text), false, text);
   }
 });
