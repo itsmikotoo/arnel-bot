@@ -28,7 +28,12 @@ export function hasRejectedChatPattern(text = "") {
   return String(text).split(/\|\||\n/).some(part => {
     const value = normalize(part);
     return /^wa+h+\b/.test(value) || /\btumben\b/.test(value)
-      || /\bseru (?:juga )?(?:ya|sih|banget|banget ya)\b/.test(value);
+      || /\bseru (?:juga )?(?:ya|sih|banget|banget ya)\b/.test(value)
+      || /\bsemangat ya\b/.test(value)
+      || /\byang penting kamu\b/.test(value)
+      || /\baku di sini kok\b/.test(value)
+      || /\bgpp santai aja\b/.test(value)
+      || /\bsemoga\b/.test(value);
   });
 }
 

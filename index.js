@@ -14,6 +14,7 @@ import qrcode from "qrcode-terminal";
 import { followupCandidate, initiativeGate, localDay } from "./plans.js";
 import { createTextTurnQueue, deliverReplyParts } from "./text-turns.js";
 import { buildSystemInstruction } from "./prompts.js";
+import { hasRejectedChatPattern } from "./style.js";
 import { buildProactivePrompt, recentInitiatives, proactiveDecision } from "./proactive.js";
 import {
   getConversationLedger, getInitiativeContext, saveConversationNote, recordInitiativeSent,
@@ -35,6 +36,7 @@ import {
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
 const AUTH_DIR = path.join(DATA_DIR, "baileys_auth");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const GEMINI_TEMPERATURE = Number(process.env.GEMINI_TEMPERATURE || 0.95);
 const CONNECTION_ONLY = process.env.CONNECTION_ONLY === "true";
 const ALLOWED_NUMBER = (process.env.ALLOWED_NUMBER || "").replace(/\D/g, "");
 const PROACTIVE_ENABLED = process.env.PROACTIVE_ENABLED === "true";
@@ -210,7 +212,7 @@ async function requestGemini(chatId, userParts, trainingQuery = "", options = {}
         system_instruction: { parts: [{ text: systemInstruction }] },
         contents: [...history, { role: "user", parts: userParts }],
         generationConfig: {
-          temperature: 1.1,
+          temperature: GEMINI_TEMPERATURE,
           maxOutputTokens: 800,
           thinkingConfig: { thinkingLevel: "MINIMAL" },
         },
@@ -234,11 +236,23 @@ async function requestGemini(chatId, userParts, trainingQuery = "", options = {}
       `Gemini tidak mengembalikan teks (finish=${finishReason}${blockReason ? ` block=${blockReason}` : ""})`,
     );
   }
+  fs.appendFileSync(path.join(DATA_DIR, "reply_log.jsonl"), JSON.stringify({
+    timestamp: new Date().toISOString(),
+    chatId,
+    input: userParts.map(part => part.text || "").filter(Boolean).join("\n"),
+    output: reply,
+    flaggedPattern: hasRejectedChatPattern(reply),
+  }) + "\n", "utf8");
   return reply;
 }
 
 async function askGemini(chatId, text) {
-  return requestGemini(chatId, [{ text }], text);
+  const reply = await requestGemini(chatId, [{ text }], text);
+  if (hasRejectedChatPattern(reply)) {
+    console.log("[gaya] reply kena filter, regenerate sekali");
+    return requestGemini(chatId, [{ text }], text);
+  }
+  return reply;
 }
 
 async function downloadImage(imageMessage) {
