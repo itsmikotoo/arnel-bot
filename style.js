@@ -24,6 +24,14 @@ export function greetingExampleFits(text = "") {
   return !/\b(tumben|biasanya|bangun\w*|tidur\w*|kesiangan|telat|sarapan\w*|begadang)\b/.test(normalize(text));
 }
 
+export function hasRejectedChatPattern(text = "") {
+  return String(text).split(/\|\||\n/).some(part => {
+    const value = normalize(part);
+    return /^wa+h+\b/.test(value) || /\btumben\b/.test(value)
+      || /\bseru (?:juga )?(?:ya|sih|banget|banget ya)\b/.test(value);
+  });
+}
+
 export function conversationKind(text = "") {
   const value = normalize(text);
   if (isGreetingOnly(text)) return "greeting";
@@ -52,6 +60,7 @@ export function selectStyleExamples(samples, query = "", limit = 8, recentReplie
   const seen = new Set();
   const recent = recentReplies.map(normalize);
   const ranked = samples.filter((item) => item && typeof item.content === "string" && item.content.trim())
+    .filter((item) => !query.trim() || !hasRejectedChatPattern(item.content))
     .filter((item) => kind !== "greeting" || greetingExampleFits(item.content))
     .map((item) => {
       const input = typeof item.input === "string" ? item.input : "";

@@ -183,7 +183,8 @@ test("bare greetings exclude sleep assumptions without changing substantive chat
   ];
   const original = JSON.stringify(samples);
   assert.deepEqual(selectStyleExamples(samples, 'pagi nel', 8).map(item => item.content), ['pagii']);
-  assert.equal(selectStyleExamples(samples, 'aku baru bangun', 8).length, 3);
+  assert.equal(selectStyleExamples(samples, 'aku baru bangun', 8).length, 2);
+  assert.ok(selectStyleExamples(samples, 'aku baru bangun', 8).some(item => item.content === 'udah sarapan belum'));
   assert.equal(JSON.stringify(samples), original);
 });
 
@@ -207,4 +208,17 @@ test('punctuationless viewing questions count and short answers do not restart a
   assert.ok(guidance.includes('Beberapa balasan terakhir sudah bertanya'));
   assert.ok(guidance.includes('User sedang menjawab pertanyaan Arnel'));
   assert.ok(!turnGuidance('jelasin alurnya dong', history).includes('User sedang menjawab pertanyaan Arnel'));
+});
+
+test('owner-rejected stock reactions are excluded from references while source files and relevant questions survive', async () => {
+  const { hasRejectedChatPattern } = await import('../style.js');
+  for (const reply of ['wah bleach emang nagih sih', 'wahh cepet juga udah kelar', 'oalah || seru ya ngikutin dua itu sekaligus', 'seru juga ya', 'tumben bangun pagi']) {
+    assert.equal(hasRejectedChatPattern(reply), true, reply);
+  }
+  for (const reply of ['wahyu tadi nelpon', 'bagian mana yang menurutmu seru', 'aku salah nangkep']) assert.equal(hasRejectedChatPattern(reply), false, reply);
+  const source = [{ input: 'udah kelar nunggu eps baru', content: 'wah cepet juga udah kelar' }, { input: 'udah kelar nunggu eps baru', content: 'aku salah nangkep' }];
+  const original = JSON.stringify(source);
+  assert.deepEqual(selectStyleExamples(source, 'udah kelar nunggu eps baru').map(item => item.content), ['aku salah nangkep']);
+  assert.equal(selectStyleExamples(source, '', 999).length, 2); // startup import count stays accurate
+  assert.equal(JSON.stringify(source), original);
 });

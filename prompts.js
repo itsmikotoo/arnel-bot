@@ -1,6 +1,6 @@
 import { formatPlanContext } from "./plans.js";
-import { SYSTEM_PROMPT } from "./persona.js";
-import { formatStyleExamples, turnGuidance, isGreetingOnly, greetingExampleFits } from "./style.js";
+import { SYSTEM_PROMPT, OWNER_CHAT_PREFERENCE } from "./persona.js";
+import { formatStyleExamples, turnGuidance, isGreetingOnly, greetingExampleFits, hasRejectedChatPattern } from "./style.js";
 import {
   getConversationLedger, getHistory, getRelationshipContext, getBehaviorRules, getRelevantArnelStories,
   getRelevantStyleExamples, getRelevantMemories, getRelevantExamples,
@@ -17,7 +17,8 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false, 
   const recentReplies = recentHistory.filter((item) => item.role === "assistant").map((item) => item.content);
   const styleExamples = getRelevantStyleExamples(query, 8, recentReplies);
   const memories = getRelevantMemories(chatId, query, 6);
-  const examples = getRelevantExamples(chatId, query, 6).filter(item => !greeting || greetingExampleFits(item.output));
+  const examples = getRelevantExamples(chatId, query, 6)
+    .filter(item => !hasRejectedChatPattern(item.output) && (!greeting || greetingExampleFits(item.output)));
   const memoryContext = memories.length
     ? [
         "Hal yang Arnel ingat tentang lawan bicara:",
@@ -79,6 +80,7 @@ export function buildSystemInstruction(chatId, query = "", { proactive = false, 
     "",
     stylePriority,
     turnGuidance(proactive ? "" : query, recentHistory),
+    OWNER_CHAT_PREFERENCE,
     "Ketentuan sapaan Arnel: selalu aku–kamu untuk ucapan sendiri, termasuk chat duluan dan tanggapan foto. Ini mengungguli kata ganti dalam contoh impor, hasil !teach, aturan lama dan riwayat. Ambil ritme serta cara meresponsnya saja; jangan ikut memakai gw/gue/gua atau lu/lo/elu/elo. Tidak perlu memaksakan kata ganti jika kalimat sudah jelas. Kutipan pesan orang lain tidak perlu diubah.",
   ].join("\n");
 }

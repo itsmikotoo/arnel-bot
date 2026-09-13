@@ -54,5 +54,15 @@ test("production prompt loads old and paired imports together with owner correct
   assert.ok(greeting.includes("Waktu lokal sekarang"));
   const initiated = buildSystemInstruction("owner", "pagi nel", { proactive: true });
   assert.ok(!initiated.includes("Pesan ini hanya sapaan"));
+  db.saveTrainingExample("owner", "udah kelar nunggu eps baru", "wah cepet juga udah kelar", "teach");
+  db.saveTrainingExample("owner", "udah kelar nunggu eps baru", "seru ya ngikutin dua itu sekaligus", "good");
+  db.saveBehaviorRule("owner", "pakai wah sebagai pembuka");
+  for (const proactive of [false, true]) {
+    const revised = buildSystemInstruction("owner", "udah kelar nunggu eps baru", { proactive });
+    assert.ok(!revised.includes("arnel: wah cepet juga udah kelar"));
+    assert.ok(!revised.includes("arnel: seru ya ngikutin dua itu sekaligus"));
+    assert.ok(revised.indexOf("Preferensi terbaru pemilik") > revised.indexOf("pakai wah sebagai pembuka"));
+    assert.ok(revised.includes("Sudah selesai menonton tidak berarti cepat selesai"));
+  }
   assert.equal(fs.readFileSync(stylePath, "utf8"), styleData);
 });
