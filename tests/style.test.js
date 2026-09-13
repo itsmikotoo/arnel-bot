@@ -192,3 +192,19 @@ test("greeting guidance does not force a new topic or apply to a greeting with a
   assert.ok(turnGuidance('pagi nel').includes('Jangan mengoreksi sapaan user'));
   assert.ok(!turnGuidance('pagi nel hari ini ada kelas?').includes('Pesan ini hanya sapaan'));
 });
+
+test('punctuationless viewing questions count and short answers do not restart an interview', async () => {
+  const { asksQuestion } = await import('../style.js');
+  for (const text of ['begadang nonton apa semalem', 'emang semalem nonton apaan emangnya', 'lanjut arc mana semalem', 'tadi apa anime nya']) {
+    assert.equal(asksQuestion(text), true, text);
+  }
+  const history = [
+    { role: 'assistant', content: 'begadang nonton apa semalem' },
+    { role: 'user', content: 'anime' },
+    { role: 'assistant', content: 'tadi apa anime nya' },
+  ];
+  const guidance = turnGuidance('bleach sama black clover', history);
+  assert.ok(guidance.includes('Beberapa balasan terakhir sudah bertanya'));
+  assert.ok(guidance.includes('User sedang menjawab pertanyaan Arnel'));
+  assert.ok(!turnGuidance('jelasin alurnya dong', history).includes('User sedang menjawab pertanyaan Arnel'));
+});

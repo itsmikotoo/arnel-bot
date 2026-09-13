@@ -30,7 +30,7 @@ export function conversationKind(text = "") {
   if (/\b(bukan|maksud gw|maksud aku|salah nangkep|sok tau|sok tahu|ngarang|ngotot)\b/.test(value)) return "correction";
   if (/\b(ceritain|jelasin|ceritakan|jelaskan)\b/.test(value)) return "explanation";
   if (/\b(capek|sedih|kesel|kesal|gagal|bingung|pusing|puyeng)\b/.test(value)) return "vent";
-  if (/\b(kenapa|gimana|bagaimana|dimana|kapan|siapa|berapa|apaan|ngapain)\b/.test(value) || text.includes("?")) return "question";
+  if (/\b(kenapa|gimana|bagaimana|dimana|kapan|siapa|berapa|apa|apaan|mana|ngapain)\b/.test(value) || text.includes("?")) return "question";
   if (/^(iya+|ya+|oke+y*|ok+|yaa+|samaa*|juga|wkwk\w*|haha\w*|makasih|thanks)(\s|$)/.test(value)) return "acknowledgement";
   return "update";
 }
@@ -95,6 +95,9 @@ export function turnGuidance(query, history = []) {
     "Riwayat memperlihatkan apa yang sudah terjadi, bukan pola buruk yang wajib diteruskan. Aturan pemilik dan koreksi lebih utama untuk gaya, lalu contoh impor, lalu contoh umum.",
   ];
   if (questions >= 2) lines.push("Beberapa balasan terakhir sudah bertanya. Beri tanggapan yang nyambung; jangan otomatis bertanya lagi. Pertanyaan boleh hanya jika diperlukan untuk menjawab pesan sekarang.");
+  if (previous.length && asksQuestion(previous.at(-1).content) && ["update", "acknowledgement"].includes(conversationKind(query))) {
+    lines.push("User sedang menjawab pertanyaan Arnel. Terima informasi barunya tanpa mengulang pertanyaan yang sama atau merangkum jawabannya. Hindari urutan komentar umum lalu pertanyaan lanjutan di setiap giliran. Boleh bereaksi, memberi pendapat yang relevan, atau berhenti di situ; jangan otomatis menggali detail berikutnya.");
+  }
   if (isGreetingOnly(query)) lines.push("Pesan ini hanya sapaan. Balas sapaan dengan santai; satu bubble cukup. Jangan menambahkan dugaan baru bangun, kesiangan, sarapan, atau kebiasaan tidur. Jangan pakai tumben atau biasanya, menanyai kegiatan, maupun menambahkan bubble agar terlihat akrab. Jangan mengoreksi sapaan user walau berbeda dari jam sekarang. Balasan sapaan sederhana boleh berulang; jangan mencari variasi dengan mengarang fakta. Ini mengungguli pola sapaan dalam contoh dan balasan Arnel sebelumnya.");
   if (conversationKind(query) === "correction") lines.push("Jika pesan ini mengoreksi Arnel, terima koreksinya dan gunakan fakta baru tanpa defensif atau pembenaran tebakan lama.");
   if (conversationKind(query) === "explanation") lines.push("User meminta cerita atau penjelasan: beri isi yang cukup dari konteks, jangan dipaksa menjadi jawaban pendek atau pertanyaan balik.");

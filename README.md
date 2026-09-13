@@ -202,3 +202,17 @@ maksimal 16 catatan masuk prompt, tanpa permintaan API ekstraksi tambahan.
 Tanggal dan jadwal memakai `TZ`, default `Asia/Jakarta`. Tidak perlu mengimpor ulang chat
 atau memasang dependensi baru. Uji kealamian jawaban dengan chat nyata setelah deploy;
 tes otomatis hanya memverifikasi pencatatan, waktu, penyaringan dan aturan pengiriman.
+
+## Pesan susulan saat Arnel sedang menjawab
+
+Pesan teks yang berdekatan tetap digabung selama `MESSAGE_DEBOUNCE_MS` (default 3500 ms).
+Jika pesan baru datang saat Gemini sedang menyusun jawaban atau saat jeda mengetik,
+balasan lama yang belum terkirim dibatalkan dan inputnya digabung dengan pesan susulan.
+Jika sebagian bubble sudah terkirim, hanya sisanya yang dihentikan; input lama tidak
+ dibalas ulang. Riwayat balasan menyimpan bagian yang benar-benar terkirim saja.
+
+Pertanyaan tanpa tanda tanya seperti “nonton apa” dan “arc mana” ikut diperhitungkan saat
+mencegah rentetan pertanyaan. Saat user sedang menjawab pertanyaan, prompt mengarahkan
+Arnel untuk menanggapi informasi baru tanpa otomatis mengulang jawaban, menambahkan
+komentar umum, lalu menggali detail berikutnya. Ini tidak membatasi panjang penjelasan
+ketika memang diminta. Kealamian bahasa tetap perlu dievaluasi dari hasil model.

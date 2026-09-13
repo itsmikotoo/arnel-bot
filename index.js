@@ -12,6 +12,7 @@ import makeWASocket, {
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import { followupCandidate, initiativeGate, localDay } from "./plans.js";
+import { createTextTurnQueue, deliverReplyParts } from "./text-turns.js";
 import { buildSystemInstruction } from "./prompts.js";
 import { buildProactivePrompt, recentInitiatives, proactiveDecision } from "./proactive.js";
 import {
@@ -67,7 +68,15 @@ let proactiveRunning = false;
 let starting = false;
 let activeSocket;
 let targetJid;
-const pendingTextMessages = new Map();
+const textTurns = createTextTurnQueue({
+  delayMs: MESSAGE_DEBOUNCE_MS,
+  onTurn: (chatId, batch, isCurrent) => enqueueChat(chatId, () => {
+    const text = batch.map(item => item.text).join("\n");
+    console.log(`[giliran] ${chatId}: ${batch.length} pesan`);
+    return generateAndSendReply(batch.at(-1).message, chatId, text, undefined, undefined, isCurrent);
+  }),
+  onError: error => console.error("Gagal memproses pesan:", error.message),
+});
 const chatQueues = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -457,8 +466,8 @@ function shouldReplyWithQuote(message, text, parts) {
   return looksWorthQuoting && Math.random() < REPLY_QUOTE_CHANCE;
 }
 
-async function generateAndSendReply(message, chatId, text, imageMessage, stickerMessage) {
-  recordInteraction(chatId, text);
+async function generateAndSendReply(message, chatId, text, imageMessage, stickerMessage, isCurrent = () => true) {
+  if (!isCurrent()) return { retry: true };
   let reply;
   let userContent = text;
 
@@ -476,58 +485,49 @@ async function generateAndSendReply(message, chatId, text, imageMessage, sticker
     reply = await askGemini(chatId, text);
   }
 
-  saveMessage(chatId, "user", userContent);
-
+  if (!isCurrent()) return { retry: true };
   const parts = splitReply(reply);
   const quoteFirstReply = shouldReplyWithQuote(message, text, parts);
-  const sent = [];
+  let sent = [];
   try {
-    for (const [index, part] of parts.entries()) {
-      await activeSocket.sendPresenceUpdate("composing", chatId);
-      await sleep(Math.min(900 + part.length * 25, 3500));
-      await activeSocket.sendMessage(
-        chatId,
-        { text: part },
+    const result = await deliverReplyParts(parts, {
+      isCurrent,
+      beforeSend: async (part, index) => {
+        if (index) await sleep(350 + Math.random() * 450);
+        await activeSocket.sendPresenceUpdate("composing", chatId);
+        await sleep(Math.min(900 + part.length * 25, 3500));
+      },
+      send: (part, index) => activeSocket.sendMessage(
+        chatId, { text: part },
         index === 0 && quoteFirstReply ? { quoted: message } : undefined,
-      );
-      sent.push(part);
-      if (parts.length > 1) await sleep(350 + Math.random() * 450);
-    }
+      ),
+    });
+    sent = result.sent;
+    return { retry: result.retry };
+  } catch (error) {
+    sent = error.sentParts || [];
+    throw error;
   } finally {
     if (sent.length) {
-      const delivered = sent.join(" || ");
-      saveMessage(chatId, "assistant", delivered);
-      saveArnelStory(chatId, delivered);
-      saveConversationNote(chatId, "assistant", delivered);
+      try {
+        recordInteraction(chatId, text);
+        saveMessage(chatId, "user", userContent);
+        const delivered = sent.join(" || ");
+        saveMessage(chatId, "assistant", delivered);
+        saveArnelStory(chatId, delivered);
+        saveConversationNote(chatId, "assistant", delivered);
+      } catch (error) {
+        error.turnDelivered = true;
+        throw error;
+      }
     }
+    // A failed presence update must not replay an already delivered turn.
+    try { await activeSocket.sendPresenceUpdate("paused", chatId); } catch {}
   }
-  await activeSocket.sendPresenceUpdate("paused", chatId);
 }
 
 function queueTextMessage(message, chatId, text) {
-  const pending = pendingTextMessages.get(chatId) || {
-    texts: [],
-    message,
-    timer: undefined,
-  };
-
-  pending.texts.push(text);
-  pending.message = message;
-  clearTimeout(pending.timer);
-  pending.timer = setTimeout(() => {
-    pendingTextMessages.delete(chatId);
-    const combinedText = pending.texts.join("\n");
-    console.log(
-      pending.texts.length > 1
-        ? `[gabung] ${chatId}: ${pending.texts.length} pesan`
-        : `[proses] ${chatId}: ${combinedText}`,
-    );
-    enqueueChat(chatId, () =>
-      generateAndSendReply(pending.message, chatId, combinedText, undefined, undefined),
-    ).catch((error) => console.error("Gagal memproses pesan:", error.message));
-  }, MESSAGE_DEBOUNCE_MS);
-
-  pendingTextMessages.set(chatId, pending);
+  textTurns.push(chatId, { message, text });
 }
 
 function scheduleReconnect(delay = 3000) {
@@ -713,7 +713,7 @@ async function startWhatsApp() {
 process.on("SIGINT", () => {
   clearTimeout(reconnectTimer);
   clearInterval(proactiveTimer);
-  for (const pending of pendingTextMessages.values()) clearTimeout(pending.timer);
+  textTurns.close();
   activeSocket?.end?.(new Error("Bot dihentikan"));
   process.exit(0);
 });

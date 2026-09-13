@@ -7,7 +7,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node start.js",
-    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js && node --check proactive.js && node --check plans.js",
+    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js && node --check proactive.js && node --check plans.js && node --check text-turns.js",
     "test": "node --test",
     "import-style": "node scripts/import-style.js",
     "dashboard": "node start.js",
