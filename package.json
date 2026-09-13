@@ -7,11 +7,17 @@
   "main": "index.js",
   "scripts": {
     "start": "node start.js",
-    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js && node --check proactive.js && node --check plans.js && node --check text-turns.js",
+    "check": "node --check start.js && node --check index.js && node --check db.js && node --check persona.js && node --check prompts.js && node --check style.js && node --check scripts/import-style.js && node --check proactive.js && node --check plans.js && node --check text-turns.js && node --check scripts/service.js && node --check scripts/update-bot.js",
     "test": "node --test",
     "import-style": "node scripts/import-style.js",
     "dashboard": "node start.js",
-    "bot": "node index.js"
+    "bot": "node index.js",
+    "service:install": "node scripts/service.js install",
+    "service:status": "node scripts/service.js status",
+    "service:logs": "node scripts/service.js logs",
+    "service:restart": "node scripts/service.js restart",
+    "service:stop": "node scripts/service.js stop",
+    "update:bot": "node scripts/update-bot.js"
   },
   "engines": {
     "node": ">=20"

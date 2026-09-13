@@ -216,3 +216,71 @@ mencegah rentetan pertanyaan. Saat user sedang menjawab pertanyaan, prompt menga
 Arnel untuk menanggapi informasi baru tanpa otomatis mengulang jawaban, menambahkan
 komentar umum, lalu menggali detail berikutnya. Ini tidak membatasi panjang penjelasan
 ketika memang diminta. Kealamian bahasa tetap perlu dievaluasi dari hasil model.
+
+## Otomatis hidup dan update lewat SSH / Tailscale (Debian)
+
+Masuk sebagai user biasa yang menjalankan bot (misalnya `mikoto`). Jalankan sekali:
+
+```bash
+cd ~/arnel-bot
+npm run service:install
+npm run service:logs
+```
+
+Installer membuat **user service** `arnel-bot.service`, mengaktifkan autostart, dan meminta
+`sudo loginctl enable-linger` jika belum aktif. Linger membuat service berjalan setelah boot
+meski belum login, serta tetap berjalan ketika SSH ditutup. Jalankan npm sebagai user biasa,
+bukan `sudo npm`. Installer menghentikan `node start.js`/`node index.js` lama milik user ini
+hanya jika proses tersebut berjalan dari folder repo yang sama, termasuk proses dari nohup.
+Unit custom yang bukan dibuat installer ini tidak ditimpa.
+
+Dashboard dan bot akan dimulai ulang oleh systemd setelah proses berhenti, dengan jeda
+15 detik. Jika hanya proses anak bot yang mati, supervisor juga keluar agar systemd
+memulihkan keduanya. Restart dari dashboard tetap bekerja. Sesudah memakai service,
+jangan menjalankan `nohup npm start` atau `npm start` lagi secara terpisah.
+
+Dari PowerShell Windows atau Termius, sambungkan SSH Tailscale seperti biasa:
+
+```text
+ssh mikoto@mikoto-netvision
+```
+
+Lalu setiap ingin memasang update GitHub cukup:
+
+```bash
+cd ~/arnel-bot && npm run update:bot
+```
+
+Updater hanya untuk branch `feat/natural-chat`. Ia menolak perubahan lokal dan update
+non-fast-forward; tidak melakukan stash atau reset otomatis. Dependency, pemeriksaan
+syntax dan tes dijalankan pada worktree sementara sebelum service dihentikan. Sesudah
+lulus, kode dan dependency baru dipasang lalu seluruh service dimulai lagi. `.env`, sesi
+WhatsApp dan data chat tidak ditimpa. Checkout sementara membutuhkan ruang untuk satu
+salinan dependency tambahan. Jika pemasangan gagal setelah service dihentikan, updater
+melaporkan kegagalan dan menyimpan checkout/dependency sebelumnya untuk diperiksa.
+Status service aktif belum membuktikan WhatsApp tersambung; periksa lognya.
+
+```bash
+npm run service:status
+npm run service:logs
+npm run service:restart
+npm run service:stop
+```
+
+Log service berada di journal systemd, bukan lagi `data/arnel.log`. `service:stop` menghentikan
+service sampai dijalankan lagi atau boot berikutnya; matikan autostart dengan
+`systemctl --user disable --now arnel-bot.service` jika diperlukan. Jika pindah folder repo
+atau mengganti instalasi Node, jalankan installer lagi agar path service diperbarui.
+
+MacBook tetap perlu mendapat listrik dan internet, serta tidak sleep. Service ini tidak
+mengubah pengaturan tutup layar, suspend, atau baterai. Sesi WhatsApp yang logout tetap
+perlu ditautkan ulang; systemd tidak bisa memulihkan otorisasi yang dicabut.
+
+Dashboard bisa dibuka dari Windows tanpa mengubah bind host dengan tunnel SSH:
+
+```text
+ssh -L 3000:127.0.0.1:3000 mikoto@mikoto-netvision
+```
+
+Biarkan jendela SSH terbuka lalu buka `http://localhost:3000` di browser Windows. Jika port
+3000 Windows sedang dipakai, gunakan `-L 3001:127.0.0.1:3000` dan buka port 3001.

@@ -132,6 +132,10 @@ function spawnBot() {
     state.botProcess = "stopped";
     state.whatsapp = "offline";
     addLog("error", `Bot berhenti code=${code ?? "?"} signal=${signal ?? "?"}`);
+    if (process.env.ARNEL_MANAGED_SERVICE === "1" && !restarting && !stopping) {
+      console.error("Bot berhenti di luar restart terencana; service akan memulai ulang dashboard dan bot.");
+      process.exit(1);
+    }
   });
 
   child.on("error", (error) => {
@@ -139,6 +143,7 @@ function spawnBot() {
     state.botProcess = "error";
     state.whatsapp = "offline";
     addLog("error", `Gagal menjalankan bot: ${error.message}`);
+    if (process.env.ARNEL_MANAGED_SERVICE === "1" && !restarting && !stopping) process.exit(1);
   });
 }
 
