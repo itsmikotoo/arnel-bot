@@ -22,11 +22,11 @@ test('plans never become completed or delayed just because tomorrow arrived', ()
 
 test('explicit updates supersede only the same speaker and matching plan', () => {
   const notes = [note(1, 'aku mau bikin camilan'), note(2, 'aku udah bikin camilan', 'assistant', start + 1000)];
-  assert.equal(buildPlanLedger(notes)[0].status, 'planned');
+  assert.equal(buildPlanLedger(notes, start + 3000)[0].status, 'planned');
   notes.push(note(3, 'aku udah bikin tugas', 'user', start + 2000));
-  assert.equal(buildPlanLedger(notes)[0].status, 'planned');
+  assert.equal(buildPlanLedger(notes, start + 3000)[0].status, 'planned');
   notes.push(note(4, 'aku udah bikin camilan', 'user', start + 3000));
-  const ledger = buildPlanLedger(notes);
+  const ledger = buildPlanLedger(notes, start + 3000);
   assert.equal(ledger[0].status, 'superseded');
   assert.equal(ledger.at(-1).status, 'reported_done');
 });
@@ -34,7 +34,7 @@ test('explicit updates supersede only the same speaker and matching plan', () =>
 test('questions, hypothetical plans and work preparing for an event are not completion evidence', () => {
   const notes = [note(1, 'besok ujian fisika'), note(2, 'aku udah belajar ujian fisika', 'user', start + 1000),
     note(3, 'udah ujian fisika?', 'user', start + 2000), note(4, 'kalau besok ujian matematika', 'user', start + 3000)];
-  const ledger = buildPlanLedger(notes);
+  const ledger = buildPlanLedger(notes, start + 3000);
   assert.equal(ledger[0].status, 'planned');
   assert.equal(ledger.length, 2);
   for (const content of ['temenku besok ujian', 'kata rani besok ujian', 'kamu besok ujian']) {
@@ -49,7 +49,7 @@ test('cancellations, postponements, negation and uncertain corrections do not be
     const ledger = buildPlanLedger([note(1, 'besok ujian fisika'), note(2, update, 'user', start + 1000)], start + 86400000);
     assert.equal(followupCandidate(ledger, start + 86400000), null, update);
   }
-  const ledger = buildPlanLedger([note(1, 'aku mau bikin camilan'), note(2, 'aku mau bikin tugas', 'user', start + 1000), note(3, 'gak jadi', 'user', start + 2000)]);
+  const ledger = buildPlanLedger([note(1, 'aku mau bikin camilan'), note(2, 'aku mau bikin tugas', 'user', start + 1000), note(3, 'gak jadi', 'user', start + 2000)], start + 2000);
   assert.equal(ledger[0].status, 'uncertain_update'); // do not chase either ambiguous plan
   assert.equal(ledger[1].status, 'uncertain_update');
 });
