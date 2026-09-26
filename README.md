@@ -22,6 +22,12 @@ Isi `GEMINI_API_KEY`, `GEMINI_MODEL` yang tersedia pada akunmu, dan `ALLOWED_NUM
 
 Gemini diakses melalui `generateContent` dengan header `x-goog-api-key`; model, suhu, timeout, dan jumlah token dapat diubah lewat `.env`. `LIGHT_READING_CHANCE=0.035` memberi peluang kecil per balasan reaktif untuk memakai instruksi membaca nuansa pesan dengan lebih santai; nilai 0 mematikannya, rentang yang diterima 0–0.1. Ini tidak bergantung pada keyword user dan tidak mengubah fakta life state, cerita, atau memori. Koreksi user direspons menurut gaya saat itu tanpa frasa jawaban tetap. Retry berlaku pada timeout, masalah jaringan, HTTP 408/429/5xx. HTTP 400/401/403 dan respons yang diblokir tidak diulang otomatis. Foto dan sticker didekripsi di memori lalu dikirim langsung sebagai `inlineData` ke Gemini (maksimum 5 MB); tidak ada unggahan media ke penyimpanan eksternal. Sticker animasi dapat ditafsirkan sebagai satu frame, bergantung dukungan model terhadap WebP. Bot tidak mengirim emoji, termasuk untuk reaction.
 
+## Foto referensi keluar
+
+Opsional: dapatkan kunci API dari [Pexels API](https://www.pexels.com/api/) lalu isi `PEXELS_API_KEY=` di `.env` dan `pm2 restart arnel-v3 --update-env`. Bila kunci kosong, fitur gambar keluar mati dan chat teks tetap bekerja. Saat Gemini memutuskan foto nyata akan membantu (terutama permintaan contoh visual), ia menambahkan instruksi pencarian tersembunyi. Bot mencari melalui endpoint resmi Pexels, memeriksa kecocokan deskripsi hasil teratas, mengunduh foto dengan batas 5 MB, lalu mengirim gambar WhatsApp dengan kredit fotografer dan tautan sumber. Foto stok tidak selalu tersedia untuk makanan atau benda lokal yang sangat spesifik; jika tidak ada kecocokan, bot hanya mengirim teks dan tidak mengganti dengan gambar yang keliru. Bot tidak menganggap foto stok itu foto pribadi Arnel.
+
+Pencarian gambar dibatasi terpisah dari Gemini: `IMAGE_SEARCH_DAILY_MAX=4` panggilan API per hari (termasuk retry), jarak minimal `IMAGE_SEARCH_MIN_GAP_MINUTES=120` antarpencarian, dan `IMAGE_SEARCH_TIMEOUT_MS=12000`. Penggunaan tersimpan di `data/image_search_limits.json` sehingga restart tidak menghapus kuota. Query bertema seksual/eksplisit atau orang ditolak, begitu juga foto dengan metadata bermasalah. Pexels menyediakan API gratis dengan batas bawaannya sendiri; pastikan penggunaanmu sesuai ketentuan serta atribusinya.
+
 ## Proses terus berjalan dengan pm2
 
 ```bash
@@ -85,6 +91,7 @@ Importer menyimpan contoh respons beserta pesan sebelumnya bila ada; seleksi men
 | `src/index.js`, `config.js`, `logger.js` | Wiring proses, validasi `.env`, logging terstruktur |
 | `src/whatsapp.js` | Session Baileys, QR, reconnect, filter chat, dekripsi media |
 | `src/bot.js`, `gemini.js` | Debounce, antrean per chat, prompt/request Gemini, pengiriman bubble |
+| `src/image-search.js` | Pencarian foto Pexels, pemeriksaan hasil, batas pemakaian, unduhan aman |
 | `src/persona.js`, `style.js` | Identitas inti, aturan no slop, contoh gaya |
 | `src/life.js`, `story.js` | Fase hidup, kejadian kecil, kontinuitas cerita |
 | `src/storage.js`, `memory.js`, `relationship.js` | JSON atomik, histori, feedback, mood dan kebiasaan |
