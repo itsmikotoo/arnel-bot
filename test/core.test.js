@@ -12,7 +12,7 @@ import { Gemini, toGeminiHistory } from '../src/gemini.js';
 import { allowed, incoming } from '../src/whatsapp.js';
 import { Story } from '../src/story.js';
 import { arnelPronouns } from '../src/voice.js';
-import { Bot, splitReply, isShortAnswerToQuestion, startsWithBareQuestion } from '../src/bot.js';
+import { Bot, splitReply, isShortAnswerToQuestion, startsWithBareQuestion, styleIssue } from '../src/bot.js';
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-test-'));
@@ -51,7 +51,15 @@ test('short answer to Arnel question gets a reaction before any follow-up', asyn
   const bot = new Bot({ config: {}, logger: { info() {}, warn() {}, debug() {} }, store, memory, relationship: { context: () => '' }, life, story: { active: () => [] }, style: { examples: () => [] }, gemini: { generate: async request => { prompts.push(request.system); return outputs.shift(); } } });
   assert.equal(await bot.ask('jid', 'lagi ngedit'), 'oh pantes sepi || lagi ngedit apa emangnya?');
   assert.equal(prompts.length, 2);
-  assert.match(prompts[0], /Mulai dengan reaksi/);
+  assert.match(prompts[0], /Mulai dengan komentar personal/);
+});
+test('style check catches repeated structure and echo, but allows an isolated casual ending', () => {
+  const last = [{ role: 'assistant', content: 'oh video, dikira modifikasi beneran, tapi seru sih' }];
+  assert.equal(styleIssue('ohh, pasti keren nanti, tapi cocok sih', last, 'oke'), 'rumus asumsi dan penutup berulang');
+  assert.equal(styleIssue('boleh juga tuh', last, 'oke'), '');
+  assert.equal(styleIssue('wah capek banget hari ini kamu', [], 'capek banget hari ini'), 'frasa template');
+  assert.equal(styleIssue('capek banget hari ini ya kamu', [], 'capek banget hari ini'), 'mengulang kata user');
+  assert.equal(styleIssue('itu wajar kok', [], 'aku kesel'), 'frasa template');
 });
 test('history merges adjacent messages with the same role for Gemini', () => {
   assert.deepEqual(toGeminiHistory([{ role: 'assistant', content: 'old' }, { role: 'user', content: 'a' }, { role: 'user', content: 'b' }]), [{ role: 'user', parts: [{ text: 'a\nb' }] }]);
