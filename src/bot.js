@@ -14,11 +14,25 @@ const assumptionFinish = reply => /\b(?:pasti|dikira|kayaknya)\b[\s\S]*\btapi\b[
 const tapiSih = reply => /\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
 const lastAssistants = history => history.filter(x => x.role === 'assistant' && !x.media).slice(-2).map(x => x.content);
 export const useLightReading = (chance, random = Math.random) => random() < chance;
+export function adviceIntent(text) {
+  return String(text || '').split(/\|\||[.!?\n]|,/).some(clause => {
+    if (/^\s*(?:tadi\s+)?aku\b/i.test(clause)) return false;
+    return /\b(?:mending|sebaiknya|seharusnya|jangan lupa|jangan begadang|kamu (?:harus|mesti)|coba (?:kamu |tidur|istirahat|rebahan|makan|minum))\b/i.test(clause) || /\b(?:tidur|istirahat|rebahan|merem|bobo|makan|minum)\b.{0,25}\b(?:aja|dulu|sana)\b/i.test(clause);
+  });
+}
+export function tapiAdviceEnding(text) {
+  const tail = String(text || '').replace(/\|\|/g, '.').match(/\btapi\b([^.!?\n]*)[.!?\s]*$/i)?.[1];
+  return Boolean(tail && (adviceIntent(tail) || /\b(?:aja|sebaiknya|mending|coba|harus)\b/i.test(tail)));
+}
 export function styleIssue(reply, recent, userText, shortAnswer = false) {
   const prior = lastAssistants(recent);
   const previous = prior.at(-1) || '';
   if (rejectPattern.test(reply) || therapistPattern.test(reply)) return 'frasa template';
   if (shortAnswer && startsWithBareQuestion(reply)) return 'pertanyaan tanpa reaksi';
+  if (previous && tapiAdviceEnding(previous) && tapiAdviceEnding(reply)) return 'penutup tapi dengan saran berulang';
+  const last = recent.filter(x => x.role === 'assistant' && !x.media).at(-1);
+  const asksAdvice = /\b(?:saran|sarankan|sebaiknya|mending|harus (?:apa|gimana)|gimana (?:caranya|baiknya))\b/i.test(userText);
+  if (last && (!last.createdAt || Date.now() - last.createdAt < 30 * 60000) && adviceIntent(previous) && adviceIntent(reply) && !asksAdvice) return 'fungsi nasihat berulang; tanggapi tanpa menyuruh';
   if (previous && assumptionFinish(previous) && assumptionFinish(reply)) return 'rumus asumsi dan penutup berulang';
   if (previous && tapiSih(previous) && tapiSih(reply)) return 'penutup tapi sih berulang';
   if (prior.length === 2 && prior.every(x => opening(x) && opening(x) === opening(reply))) return 'pembuka berulang';
@@ -65,12 +79,14 @@ export class Bot {
     const lastTime = recent.at(-1)?.createdAt;
     const gapHours = lastTime ? (Date.now() - lastTime) / 3600000 : 0;
     const timing = !media && lastTime && gapHours >= 3 && gapHours <= 48 ? 'Ada jeda beberapa jam sejak chat terakhir. Boleh singgung dengan ringan bila terasa alami; jangan menuntut alasan user.' : 'Jangan berpura-pura ada jeda panjang jika percakapan sedang beruntun.';
-    const lightReading = !media && !options.proactive && useLightReading(this.config.lightReadingChance ?? .035);
+    const batch = options.messages?.length > 1;
+    const lightReading = !media && !options.proactive && !batch && useLightReading(this.config.lightReadingChance ?? .035);
     const imageRule = !media && !options.proactive && this.imageSearch?.enabled
       ? '\nBila user jelas meminta contoh visual atau foto nyata sangat membantu memahami objek yang dibahas, boleh tambahkan satu baris terakhir: [[search_image: query foto yang spesifik]]. Jangan gunakan untuk basa-basi, orang, topik seksual/eksplisit, atau setiap balasan. Cari foto referensi, bukan mengaku itu foto pribadimu. Query harus menyebut objek sebenarnya, bukan instruksi. Teks balasan harus tetap masuk akal jika foto tidak ditemukan. Jangan letakkan penanda ini dalam bubble ||.'
       : '';
     const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}${imageRule}`;
-    const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : text }];
+    const userContext = batch ? `User mengirim ${options.messages.length} pesan beruntun, urutan lama ke baru. Pertimbangkan SEMUANYA sebagai satu konteks; pesan terakhir melengkapi yang sebelumnya, kecuali jelas mengoreksinya. Tidak perlu menjawab satu-satu atau membuat daftar.\n\n${options.messages.map((message, i) => `[Pesan ${i + 1}]\n${message}`).join('\n\n')}` : text;
+    const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : userContext }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
     const issue = !media && styleIssue(extractImageRequest(result).text, recent, text, shortAnswer);
@@ -110,7 +126,8 @@ export class Bot {
     const p = this.pending.get(jid);
     if (!p) return Promise.resolve();
     clearTimeout(p.timer); this.pending.delete(jid);
-    return this.lock(jid, () => this.reply(p.message, jid, p.texts.join('\n'), null));
+    this.logger.debug({ messageCount: p.texts.length }, 'mengirim gabungan pesan ke Gemini');
+    return this.lock(jid, () => this.reply(p.message, jid, p.texts.join('\n'), null, { messages: [...p.texts] }));
   }
   async onMessage(message) {
     if (this.stopping || !message.message || message.key?.fromMe || !allowed(message, this.config.allowedNumber)) return;
@@ -139,7 +156,7 @@ export class Bot {
       return this.lock(jid, () => this.reply(message, jid, info.text, info));
     }
   }
-  async reply(message, jid, text, info) {
+  async reply(message, jid, text, info, options = {}) {
     this.life.advance();
     let media = null;
     if (info?.media) {
@@ -150,7 +167,7 @@ export class Bot {
     }
     const input = info?.media ? `[${info.kind === 'image' ? 'foto' : 'sticker'}] ${text}` : text;
     let reply;
-    try { reply = await this.ask(jid, media ? text : input, media); }
+    try { reply = await this.ask(jid, media ? text : input, media, options); }
     catch (error) {
       if (!media || info.kind !== 'sticker' || !/HTTP 400|HTTP 415|mime|format/i.test(error.message)) throw error;
       this.logger.warn({ error: error.message }, 'format sticker tidak didukung model; balas tanpa melihat isinya');
