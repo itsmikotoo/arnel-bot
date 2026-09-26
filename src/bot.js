@@ -89,10 +89,10 @@ export class Bot {
       : '';
     const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}${imageRule}`;
     const userContext = batch ? `User mengirim ${options.messages.length} pesan beruntun, urutan lama ke baru. Pertimbangkan SEMUANYA sebagai satu konteks; pesan terakhir melengkapi yang sebelumnya, kecuali jelas mengoreksinya. Tidak perlu menjawab satu-satu atau membuat daftar.\n\n${options.messages.map((message, i) => `[Pesan ${i + 1}]\n${message}`).join('\n\n')}` : text;
-    const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : userContext }];
+    const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks dan bobot pesannya. Untuk sticker santai cukup reaksi ringan; jangan membuka roasting baru atau mengaitkannya dengan stereotip sosial/gaya hidup. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : userContext }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
-    const issue = !media && styleIssue(extractImageRequest(result).text, recent, text, shortAnswer);
+    const issue = styleIssue(extractImageRequest(result).text, recent, text, shortAnswer);
     if (issue) {
       this.logger.info({ issue }, 'reply kena filter gaya; regenerasi satu kali');
       try {
