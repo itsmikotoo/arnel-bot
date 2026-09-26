@@ -8,12 +8,12 @@ export { relevant };
 export class Memory {
   constructor(store) { this.store = store; }
   history(jid, limit = 20) { return (this.store.read('chat_history', {})[jid] || []).slice(-limit); }
-  addMessage(jid, role, content) {
-    this.store.update('chat_history', {}, db => { db[jid] ||= []; db[jid].push({ role, content, createdAt: Date.now() }); db[jid] = db[jid].slice(-200); });
+  addMessage(jid, role, content, media = null) {
+    this.store.update('chat_history', {}, db => { db[jid] ||= []; db[jid].push({ role, content, createdAt: Date.now(), ...(media ? { media } : {}) }); db[jid] = db[jid].slice(-200); });
   }
   exchange(jid) {
     const list = this.history(jid, 200);
-    for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'assistant') {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'assistant' && !list[i].media) {
       for (let j = i - 1; j >= 0; j--) if (list[j].role === 'user') return { input: list[j].content, output: list[i].content };
     }
     return null;
@@ -21,7 +21,7 @@ export class Memory {
   correct(jid, content) {
     this.store.update('chat_history', {}, db => {
       const list = db[jid] || [];
-      for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'assistant') { list[i].content = content; list[i].correctedAt = Date.now(); break; }
+      for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'assistant' && !list[i].media) { list[i].content = content; list[i].correctedAt = Date.now(); break; }
     });
   }
   addTraining(jid, input, output, source) {
