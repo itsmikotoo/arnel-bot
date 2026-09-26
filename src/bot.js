@@ -156,11 +156,19 @@ export class Bot {
       reply = await this.ask(jid, `${input}\nIsi sticker tidak dapat dilihat; jangan menebak gambarnya.`);
     }
     const imageRequest = extractImageRequest(reply);
-    reply = imageRequest.text || 'bentar ya';
+    reply = imageRequest.text;
+    let photo = null;
+    if (imageRequest.query && this.imageSearch?.enabled && !info?.media && safeImageContext(input)) {
+      try { photo = await this.imageSearch.search(imageRequest.query); }
+      catch (error) { this.logger.warn({ error: error.message }, 'pencarian foto referensi gagal'); }
+    }
+    if (!photo && imageRequest.requested && (!reply || /\b(?:cari|carikan|kirim|kirimin|tunjuk|lihat)\b.{0,50}\b(?:foto|gambar)(?:nya)?\b|\b(?:foto|gambar)(?:nya)?\b.{0,50}\b(?:ini|nih|sebentar|bentar)\b/iu.test(reply))) {
+      reply = 'belum nemu foto referensi yang pas';
+    }
     // Simpan input setelah model berhasil, agar retry kegagalan tidak menggandakan histori.
     this.memory.addMessage(jid, 'user', input);
     this.relationship.interaction(jid, input);
-    try { await this.send(jid, reply, message); }
+    try { if (reply) await this.send(jid, reply, message); }
     catch (error) {
       if (error.sentParts?.length) {
         this.memory.addMessage(jid, 'assistant', error.sentParts.join(' || '));
@@ -168,13 +176,10 @@ export class Bot {
       }
       throw error;
     }
-    if (imageRequest.query && this.imageSearch?.enabled && !info?.media && safeImageContext(input)) {
+    if (photo) {
       try {
-        const photo = await this.imageSearch.search(imageRequest.query);
-        if (photo) {
-          await this.wa.socket.sendMessage(jid, { image: photo.buffer, caption: `foto referensi · ${photo.photographer} / Pexels\n${photo.url}` });
-          this.memory.addMessage(jid, 'assistant', `[foto referensi: ${imageRequest.query}; sumber: Pexels]`, 'image');
-        }
+        await this.wa.socket.sendMessage(jid, { image: photo.buffer, caption: `foto referensi · ${photo.photographer} / Pexels\n${photo.url}` });
+        this.memory.addMessage(jid, 'assistant', `[foto referensi: ${imageRequest.query}; sumber: Pexels]`, 'image');
       } catch (error) { this.logger.warn({ error: error.message }, 'foto referensi tidak terkirim'); }
     }
   }
