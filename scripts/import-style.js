@@ -1,116 +1,60 @@
-import "dotenv/config";
-import fs from "node:fs";
-import path from "node:path";
-import process from "node:process";
+import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import { Store } from '../src/storage.js';
 
 const args = process.argv.slice(2);
-const speakerArg = args.at(-1);
-const fileArgs = args.slice(0, -1);
-
-if (!fileArgs.length || !speakerArg) {
-  console.error("Pakai: npm run import-style -- \"/path/chat.txt\" [file-lain.json] \"Nama Lawan Chat\"");
-  process.exit(1);
-}
-
-const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
-const OUTPUT_FILE = path.join(DATA_DIR, "style_examples.json");
-const LIMIT = Math.max(40, Math.min(300, Number(process.env.STYLE_IMPORT_LIMIT || 240)));
-
-function clean(value = "") {
-  return value
-    .replace(/[\u200e\u200f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isMediaOrSystemMessage(value) {
-  return /^(<media omitted>|image omitted|video omitted|audio omitted|sticker omitted|document omitted|pesan ini telah dihapus|you deleted this message|this message was deleted)$/i.test(value);
-}
-
-function parseLine(line) {
-  const match = clean(line).match(
-    /^(?:\[)?\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\])?\s*(?:[-–]\s*)?([^:]+):\s*(.*)$/u,
-  );
-  return match ? { sender: clean(match[1]), text: clean(match[2]) } : null;
-}
-
-const targetName = clean(speakerArg).toLowerCase();
-
-function parseWhatsApp(text) {
-  const messages = [];
-  let current;
-
+const append = args[0] === '--append';
+if (append) args.shift();
+const speaker = args.pop();
+if (!speaker || !args.length) { console.error('Pakai: npm run import-style -- [--append] file1.txt [file2.json ...] "Nama Pengirim"'); process.exit(1); }
+const clean = x => String(x || '').replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ').trim();
+const noise = /^(<media omitted>|image omitted|video omitted|audio omitted|sticker omitted|document omitted|you sent an attachment\.|pesan ini telah dihapus|this message was deleted)$/i;
+function whatsapp(text) {
+  const messages = []; let last;
   for (const line of text.split(/\r?\n/)) {
-    const parsed = parseLine(line);
-    if (parsed) {
-      current = parsed;
-      messages.push(current);
-    } else if (current && clean(line)) {
-      current.text = clean(`${current.text} ${line}`);
-    }
+    const m = line.match(/^(?:\[)?\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\])?\s*(?:[-–]\s*)?([^:]+):\s*(.*)$/u);
+    if (m) { last = { sender: clean(m[1]), text: clean(m[2]) }; messages.push(last); }
+    else if (last && line.trim()) last.text = clean(`${last.text} ${line}`);
   }
-
   return messages;
 }
-
-function parseInstagram(text) {
+function instagram(text) {
   const data = JSON.parse(text);
-  if (!Array.isArray(data.messages)) return [];
-
-  return data.messages
-    .filter((item) => typeof item.sender_name === "string" && typeof item.content === "string")
-    .map((item) => ({
-      sender: clean(item.sender_name),
-      text: clean(item.content),
-      timestamp: Number(item.timestamp_ms || 0),
-    }))
-    .sort((a, b) => a.timestamp - b.timestamp);
+  if (!Array.isArray(data.messages)) throw new Error('Instagram JSON tanpa array messages');
+  return data.messages.filter(x => typeof x.sender_name === 'string' && typeof x.content === 'string')
+    .map(x => ({ sender: clean(x.sender_name), text: clean(x.content), at: Number(x.timestamp_ms || 0) }))
+    .sort((a, b) => a.at - b.at);
 }
-
-const messages = fileArgs.flatMap((fileArg) => {
-  const raw = fs.readFileSync(path.resolve(fileArg), "utf8");
-  try {
-    return parseInstagram(raw);
-  } catch {
-    return parseWhatsApp(raw);
-  }
-}).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-const seen = new Set();
-const candidates = messages
-  .filter((item) => item.sender.toLowerCase() === targetName)
-  .map((item) => clean(item.text))
-  .filter((text) => text.length >= 3 && text.length <= 420 && !isMediaOrSystemMessage(text))
-  .filter((text) => {
-    const key = text.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-function selectStyleSamples(items, limit) {
+function sample(items, limit) {
   if (items.length <= limit) return items;
-  const recentCount = Math.ceil(limit * 0.6);
-  const older = items.slice(0, -recentCount);
-  const spacedOlder = Array.from({ length: limit - recentCount }, (_, index) => (
-    older[Math.floor(index * older.length / (limit - recentCount))]
-  ));
-  return [...spacedOlder, ...items.slice(-recentCount)];
+  const newest = Math.ceil(limit * .6), older = items.slice(0, -newest);
+  return [...Array.from({ length: limit - newest }, (_, i) => older[Math.floor(i * older.length / (limit - newest))]), ...items.slice(-newest)];
 }
-
-const samples = selectStyleSamples(candidates, LIMIT)
-  .map((content) => ({ content, importedAt: Date.now() }));
-
-if (!samples.length) {
-  console.error(`Tidak ada pesan dari "${speakerArg}". Cek lagi nama pengirimnya persis seperti di file export.`);
-  process.exit(1);
+const examples = [];
+for (const filename of args) {
+  const raw = fs.readFileSync(path.resolve(filename), 'utf8');
+  const messages = filename.toLowerCase().endsWith('.json') ? instagram(raw) : whatsapp(raw);
+  let previous = null;
+  for (const m of messages) {
+    const content = clean(m.text);
+    if (!content || noise.test(content) || content.length > 420) { previous = null; continue; }
+    if (m.sender.toLowerCase() === speaker.toLowerCase() && content.length >= 3) {
+      examples.push({ content, ...(previous?.sender.toLowerCase() !== speaker.toLowerCase() ? { input: previous?.text?.slice(0, 240), output: content } : {}), importedAt: Date.now() });
+    }
+    previous = m;
+  }
 }
-
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.writeFileSync(
-  OUTPUT_FILE,
-  JSON.stringify({ sourceName: clean(speakerArg), importedAt: Date.now(), samples }, null, 2),
-);
-
-console.log(`Berhasil menyimpan ${samples.length} contoh gaya dari ${clean(speakerArg)} ke ${OUTPUT_FILE}`);
-console.log("Contoh ini dipakai sebagai referensi gaya Arnel, bukan disalin mentah.");
+const limit = Math.max(40, Math.min(3000, Number(process.env.STYLE_IMPORT_LIMIT || 800)));
+if (!examples.length) { console.error(`Tidak ada pesan dari "${speaker}". Periksa nama pengirim di export.`); process.exit(1); }
+const store = new Store(path.resolve(process.env.DATA_DIR || './data'));
+const old = append ? store.read('style_examples', { samples: [] }).samples || [] : [];
+const seen = new Set();
+const combined = [...old, ...examples].filter(x => {
+  const key = clean(x.content).toLowerCase();
+  if (seen.has(key)) return false;
+  seen.add(key); return true;
+});
+const selected = sample(combined, limit);
+store.write('style_examples', { sourceName: speaker, importedAt: Date.now(), samples: selected });
+console.log(`${selected.length} contoh disimpan (${examples.length} dari file masukan).`);

@@ -1,0 +1,30 @@
+import { loadConfig } from './config.js';
+import { createLogger } from './logger.js';
+import { Store } from './storage.js';
+import { Memory } from './memory.js';
+import { Relationship } from './relationship.js';
+import { Life } from './life.js';
+import { Story } from './story.js';
+import { Style } from './style.js';
+import { Gemini } from './gemini.js';
+import { WhatsApp } from './whatsapp.js';
+import { Scheduler } from './scheduler.js';
+import { Bot } from './bot.js';
+
+const config = loadConfig();
+const logger = createLogger(config.logLevel);
+const store = new Store(config.dataDir, logger);
+const services = { config, logger, store, memory: new Memory(store), relationship: new Relationship(store), life: new Life(store), story: new Story(store), style: new Style(store), gemini: new Gemini(config, logger) };
+let bot;
+const wa = new WhatsApp({ config, logger, onMessage: message => bot.onMessage(message), onOpen: () => { if (!config.connectionOnly) scheduler.start(); }, onClose: () => scheduler.stop() });
+const scheduler = new Scheduler({ config, store, logger, send: (...a) => bot.send(...a), generate: (...a) => bot.proactive(...a), target: () => wa.target(), lock: (...a) => bot.lock(...a) });
+bot = new Bot({ ...services, wa, scheduler });
+logger.info({ connectionOnly: config.connectionOnly, styleExamples: services.style.count() }, 'Arnel v3 dimulai');
+await wa.start();
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  if (stopping) return;
+  stopping = true;
+  logger.info({ signal }, 'menyimpan state dan berhenti');
+  bot.shutdown().then(() => { process.exitCode = 0; }).catch(error => { logger.error({ error: error.message }, 'shutdown gagal'); process.exitCode = 1; });
+});
