@@ -5,7 +5,15 @@ export function rhetoricalCounter(text) {
     || /\b(?:siapa|apa)\b.{0,30}\b(?:yang bilang|kamu kira|kata kamu)\b/i.test(clause));
 }
 export const analogy = text => /\b(?:kayak|kek|seperti|ibarat|serasa)\s+\S|\bkaya\s+(?!(?:raya|akan)\b)\S/iu.test(String(text || ''));
+export function ungroundedSocialRoast(reply, history, userText) {
+  const references = String(reply || '').toLowerCase().match(/\b(?:jaksel|senopati|anak skena|anak tongkrongan|orang kaya|orang miskin|kaum elit|social climber)\b/gi) || [];
+  if (!references.length || !/\b(?:kamu|gayamu|gayanya|ngirim|sok|dasar|dih|kayak|kek)\b/i.test(reply)) return false;
+  // An earlier invention by Arnel is not evidence about the user.
+  const context = [userText, ...history.filter(m => m.role === 'user').slice(-10).map(m => m.content)].join(' ').toLowerCase();
+  return references.some(reference => !context.includes(reference));
+}
 export function banterIssue(reply, history, userText, now = Date.now()) {
+  if (ungroundedSocialRoast(reply, history, userText)) return 'roasting memakai stereotip sosial tanpa konteks user; tanggapi aksi atau media yang nyata secara ringan';
   const recent = history.filter(m => m.role === 'assistant' && !m.media && (!m.createdAt || now - m.createdAt < 30 * 60000)).slice(-3);
   if (recent.length && rhetoricalCounter(reply) && rhetoricalCounter(recent.at(-1).content)) {
     return 'counter retoris berulang; ubah fungsi respons, boleh menerima godaan tanpa membalas tantangan';
