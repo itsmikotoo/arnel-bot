@@ -91,3 +91,20 @@ test('repeated banter triggers one rewrite and accepts a relaxed non-counter res
   assert.equal(await bot.ask('jid', 'masih pendek'), 'iya deh aku kalah');
   assert.equal(calls, 2);
 });
+test('social roast must be grounded in user context, not a previous assistant invention', () => {
+  const roast = 'dih ngirim sticker begitu gayanya udah kayak anak Jaksel nongkrong di Senopati';
+  assert.match(styleIssue(roast, [], '[sticker]'), /stereotip sosial tanpa konteks/);
+  assert.match(styleIssue(roast, [{ role: 'assistant', content: 'kamu anak Jaksel di Senopati' }], '[sticker]'), /stereotip sosial tanpa konteks/);
+  assert.equal(styleIssue(roast, [{ role: 'user', content: 'aku lagi bahas stereotip anak Jaksel nongkrong Senopati' }], 'lanjut'), '');
+  assert.equal(styleIssue('Senopati ada di Jakarta Selatan', [], 'lokasinya di mana'), '');
+});
+test('sticker replies are checked and rewritten while retaining image context', async t => {
+  const { bot } = fixture(t), calls = [];
+  const drafts = ['dih ngirim sticker begitu gayanya udah kayak anak Jaksel nongkrong di Senopati', 'wkwkwk'];
+  bot.gemini.generate = async request => { calls.push(request); return drafts.shift(); };
+  assert.equal(await bot.ask('jid', '', { kind: 'sticker', mimeType: 'image/webp', buffer: Buffer.from('sticker') }), 'wkwkwk');
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].system, /stereotip sosial tanpa konteks/);
+  assert.deepEqual(calls[0].parts, calls[1].parts);
+  assert.equal(calls[1].parts[1].inlineData.mimeType, 'image/webp');
+});
