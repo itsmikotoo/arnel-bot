@@ -62,3 +62,32 @@ test('caretaker intent repeats even with different framing, but advice requests 
   assert.equal(styleIssue('aku mau tidur dulu', prior, 'iya'), '');
   assert.equal(styleIssue('bagian endingnya aku suka', prior, 'nih hasil editnya'), '');
 });
+test('consecutive rhetorical counters are detected without question marks', () => {
+  const examples = ['kurang panjang apa coba kalau dipanggil pas upacara', 'maunya sepanjang apa emang biar puas', 'emang tinggi kamu berapaan sih sampai ngatain aku pendek'];
+  for (let i = 1; i < examples.length; i++) {
+    assert.match(styleIssue(examples[i], [{ role: 'assistant', content: examples[i - 1], createdAt: Date.now() }], 'pendek banget'), /counter retoris berulang/);
+  }
+  assert.equal(styleIssue('kamu besok berangkat jam berapa?', [{ role: 'assistant', content: examples[0] }], 'besok aku pergi'), '');
+  assert.equal(styleIssue('yaudah kali ini kamu menang', [{ role: 'assistant', content: examples[1] }], 'nama kamu pendek'), '');
+});
+test('frequent analogies are flagged but isolated or requested comparisons are allowed', () => {
+  const history = ['rasanya kaya mau dipanggil ke ruang guru', 'aku kayak pemain cadangan hari ini'].map(content => ({ role: 'assistant', content, createdAt: Date.now() }));
+  assert.match(styleIssue('ini serasa sidang skripsi', history, 'ditanya mulu ya'), /perumpamaan berulang/);
+  assert.equal(styleIssue('kue ini kayak pancake kecil', history, 'bentuk kuenya kayak apa'), '');
+  assert.equal(styleIssue('rasanya kaya mau dipanggil ke ruang guru', [], 'deg degan ya'), '');
+  assert.equal(styleIssue('kayaknya besok aja', history, 'mau kapan'), '');
+});
+test('repeated banter triggers one rewrite and accepts a relaxed non-counter response', async t => {
+  const { bot, memory } = fixture(t);
+  memory.addMessage('jid', 'user', 'nama kamu pendek');
+  memory.addMessage('jid', 'assistant', 'kurang panjang apa coba kalau dipanggil pas upacara');
+  const drafts = ['maunya sepanjang apa emang biar puas', 'iya deh aku kalah'];
+  let calls = 0;
+  bot.gemini.generate = async request => {
+    calls++;
+    if (calls === 2) assert.match(request.system, /counter retoris berulang/);
+    return drafts.shift();
+  };
+  assert.equal(await bot.ask('jid', 'masih pendek'), 'iya deh aku kalah');
+  assert.equal(calls, 2);
+});
