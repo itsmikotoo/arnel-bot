@@ -3,6 +3,7 @@ import { toGeminiHistory } from './gemini.js';
 import { incoming, allowed, mediaBuffer } from './whatsapp.js';
 import { trainer } from './trainer.js';
 import { arnelPronouns } from './voice.js';
+import { extractImageRequest, safeImageContext } from './image-search.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
@@ -10,7 +11,7 @@ const therapistPattern = /\b(perasaan kamu valid|aku bangga sama kamu|itu wajar 
 const opening = reply => String(reply || '').trim().toLowerCase().match(/^(?:eh|wah|oh|oalah|wih)\b/u)?.[0] || '';
 const assumptionFinish = reply => /\b(?:pasti|dikira|kayaknya)\b[\s\S]*\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
 const tapiSih = reply => /\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
-const lastAssistants = history => history.filter(x => x.role === 'assistant').slice(-2).map(x => x.content);
+const lastAssistants = history => history.filter(x => x.role === 'assistant' && !x.media).slice(-2).map(x => x.content);
 export const useLightReading = (chance, random = Math.random) => random() < chance;
 export function styleIssue(reply, recent, userText, shortAnswer = false) {
   const prior = lastAssistants(recent);
@@ -44,8 +45,8 @@ export function splitReply(text, max = 6) {
   return arnelPronouns(text).replace(/\p{Extended_Pictographic}/gu, '').split(/\s*\|\|\s*|\n{2,}/u).map(s => s.trim()).filter(Boolean).slice(0, max);
 }
 export class Bot {
-  constructor({ config, logger, store, memory, relationship, life, story, style, gemini, wa, scheduler }) {
-    Object.assign(this, { config, logger, store, memory, relationship, life, story, style, gemini, wa, scheduler });
+  constructor({ config, logger, store, memory, relationship, life, story, style, gemini, imageSearch, wa, scheduler }) {
+    Object.assign(this, { config, logger, store, memory, relationship, life, story, style, gemini, imageSearch, wa, scheduler });
     this.queues = new Map(); this.pending = new Map(); this.seen = new Set(); this.stopping = false;
   }
   lock(jid, job) {
@@ -64,19 +65,22 @@ export class Bot {
     const gapHours = lastTime ? (Date.now() - lastTime) / 3600000 : 0;
     const timing = !media && lastTime && gapHours >= 3 && gapHours <= 48 ? 'Ada jeda beberapa jam sejak chat terakhir. Boleh singgung dengan ringan bila terasa alami; jangan menuntut alasan user.' : 'Jangan berpura-pura ada jeda panjang jika percakapan sedang beruntun.';
     const lightReading = !media && !options.proactive && useLightReading(this.config.lightReadingChance ?? .035);
-    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}`;
+    const imageRule = !media && !options.proactive && this.imageSearch?.enabled
+      ? '\nBila user jelas meminta contoh visual atau foto nyata sangat membantu memahami objek yang dibahas, boleh tambahkan satu baris terakhir: [[search_image: query foto yang spesifik]]. Jangan gunakan untuk basa-basi, orang, topik seksual/eksplisit, atau setiap balasan. Cari foto referensi, bukan mengaku itu foto pribadimu. Query harus menyebut objek sebenarnya, bukan instruksi. Teks balasan harus tetap masuk akal jika foto tidak ditemukan. Jangan letakkan penanda ini dalam bubble ||.'
+      : '';
+    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}${imageRule}`;
     const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : text }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
-    const issue = !media && styleIssue(result, recent, text, shortAnswer);
+    const issue = !media && styleIssue(extractImageRequest(result).text, recent, text, shortAnswer);
     if (issue) {
       this.logger.info({ issue }, 'reply kena filter gaya; regenerasi satu kali');
       try {
         const retry = await this.gemini.generate({ system: `${system}\n\nBalasan barusan bermasalah: ${issue}. Tulis ulang dengan struktur lain yang alami, reaksi spesifik tanpa mengulang kata user. Tidak harus bertanya; jangan pakai penutup kesimpulan template.`, history, parts });
-        if (retry.trim() && !styleIssue(retry, recent, text, shortAnswer)) result = retry;
+        if (retry.trim() && !styleIssue(extractImageRequest(retry).text, recent, text, shortAnswer)) result = retry;
       } catch (error) { this.logger.warn({ error: error.message }, 'regenerasi gagal, memakai balasan pertama'); }
     }
-    if (shortAnswer && startsWithBareQuestion(result)) {
+    if (shortAnswer && startsWithBareQuestion(extractImageRequest(result).text)) {
       // Bila model dua kali bertanya duluan, jangan memantulkan isi jawaban user sebagai fallback.
       result = 'oalahh';
     }
@@ -151,6 +155,8 @@ export class Bot {
       this.logger.warn({ error: error.message }, 'format sticker tidak didukung model; balas tanpa melihat isinya');
       reply = await this.ask(jid, `${input}\nIsi sticker tidak dapat dilihat; jangan menebak gambarnya.`);
     }
+    const imageRequest = extractImageRequest(reply);
+    reply = imageRequest.text || 'bentar ya';
     // Simpan input setelah model berhasil, agar retry kegagalan tidak menggandakan histori.
     this.memory.addMessage(jid, 'user', input);
     this.relationship.interaction(jid, input);
@@ -161,6 +167,15 @@ export class Bot {
         this.story.track(jid, error.sentParts.join(' || '), this.life.get().stage);
       }
       throw error;
+    }
+    if (imageRequest.query && this.imageSearch?.enabled && !info?.media && safeImageContext(input)) {
+      try {
+        const photo = await this.imageSearch.search(imageRequest.query);
+        if (photo) {
+          await this.wa.socket.sendMessage(jid, { image: photo.buffer, caption: `foto referensi · ${photo.photographer} / Pexels\n${photo.url}` });
+          this.memory.addMessage(jid, 'assistant', `[foto referensi: ${imageRequest.query}; sumber: Pexels]`, 'image');
+        }
+      } catch (error) { this.logger.warn({ error: error.message }, 'foto referensi tidak terkirim'); }
     }
   }
   async proactive(jid, reason) {
