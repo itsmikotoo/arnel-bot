@@ -9,7 +9,7 @@ sudo apt update
 sudo apt install -y nodejs npm
 node --version                       # pastikan v20 atau lebih baru
 cd ~/arnel-bot
-cp .env.example .env
+test -f .env || cp .env.example .env
 nano .env
 npm install
 npm run check
