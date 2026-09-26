@@ -38,6 +38,7 @@ Jalankan perintah `sudo ...` yang dicetak oleh `pm2 startup`, lalu `pm2 save` la
 ## Migrasi data v2
 
 Jika checkout branch v3 **di direktori v2 yang sama**, hentikan bot v2, backup `data/`, lalu pindah branch. Chat, training, aturan, memori, relationship, style, scheduler, dan sesi Baileys tetap berada pada `data/`; catatan cerita lama otomatis dikonversi sekali saat startup. Life state baru dimulai pada startup pertama.
+Periksa juga `LOG_LEVEL` di `.env` lama: ubah `silent` menjadi `info` agar status koneksi dan error terlihat di `pm2 logs`.
 
 Jika v3 dipasang di direktori **terpisah**, hentikan v2 dan jalankan:
 

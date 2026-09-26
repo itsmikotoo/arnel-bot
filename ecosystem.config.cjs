@@ -3,7 +3,7 @@ module.exports = {
     name: 'arnel-v3',
     script: 'src/index.js',
     cwd: __dirname,
-    instances: 1,
+    exec_mode: 'fork',
     autorestart: true,
     stop_exit_codes: [10],
     kill_timeout: 45000,
