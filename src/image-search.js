@@ -12,8 +12,10 @@ export function safeQuery(value) {
 export const safeImageContext = text => !blocked.test(String(text || ''));
 export function extractImageRequest(value) {
   const text = String(value || '');
-  const match = text.match(/(?:^|\n)\s*\[\[search_image:\s*([^\]\r\n]+)\]\]\s*$/iu);
-  return { text: match ? text.slice(0, match.index).trim() : text.trim(), query: match ? safeQuery(match[1]) : '' };
+  const marker = /\[\[\s*search_image\s*:\s*([^\]\r\n]{1,120})\]\]/giu;
+  const matches = [...text.matchAll(marker)];
+  const clean = text.replace(marker, '').replace(/\[\[\s*search_image\s*:[^\r\n]*$/iu, '').replace(/\s*\|\|\s*$/u, '').trim();
+  return { text: clean, query: matches.length ? safeQuery(matches.at(-1)[1]) : '', requested: /\[\[\s*search_image\s*:/iu.test(text) };
 }
 const relevantWords = text => new Set(String(text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
 export function selectPhoto(photos, query) {
