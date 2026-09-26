@@ -32,11 +32,12 @@ export function isShortAnswerToQuestion(text, history) {
 }
 export function startsWithBareQuestion(reply) {
   const first = String(reply || '').trim().split(/\s*\|\|\s*|\n/u)[0].trim();
-  if (!first.includes('?')) return false;
-  const before = first.slice(0, first.indexOf('?'));
+  const before = first.includes('?') ? first.slice(0, first.indexOf('?')) : first;
   if (/[.!]/.test(before)) return false;
   const lead = before.split(',')[0].trim();
-  return /^(?:serius|beneran|kok|kenapa|gimana|apa|apaan|emang|jadi|ngedit apaan|lagi apa)\b/i.test(lead) || !before.includes(',');
+  if (/^(?:serius|beneran|kok|kenapa|gimana|apa|apaan|emang|ngedit apaan|lagi apa)\b/i.test(lead)) return true;
+  if (!first.includes('?')) return /^(?:\S+\s+){0,3}(?:apa|apaan|kenapa|gimana|kok)\b/i.test(lead);
+  return !before.includes(',');
 }
 export function splitReply(text, max = 6) {
   return arnelPronouns(text).replace(/\p{Extended_Pictographic}/gu, '').split(/\s*\|\|\s*|\n{2,}/u).map(s => s.trim()).filter(Boolean).slice(0, max);
