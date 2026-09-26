@@ -5,7 +5,7 @@ module.exports = {
     cwd: __dirname,
     exec_mode: 'fork',
     autorestart: true,
-    stop_exit_codes: [10],
+    stop_exit_codes: [10, 11],
     kill_timeout: 45000,
     max_restarts: 10,
     env: { TZ: 'Asia/Jakarta' },

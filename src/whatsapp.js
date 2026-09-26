@@ -32,14 +32,15 @@ export async function mediaBuffer(media, kind, limit = 5 * 1024 * 1024) {
 export class WhatsApp {
   constructor({ config, logger, onMessage, onOpen, onClose }) {
     Object.assign(this, { config, logger, onMessage, onOpen, onClose });
-    this.socket = null; this.timer = null; this.stopped = false; this.connecting = false; this.failures = 0;
+    this.socket = null; this.timer = null; this.stopped = false; this.connecting = false; this.failures = 0; this.conflictAt = [];
   }
   async start() {
     if (this.stopped || this.connecting) return;
     this.connecting = true;
     try {
       const { state, saveCreds } = await useMultiFileAuthState(path.join(this.config.dataDir, 'baileys_auth'));
-      const sock = makeWASocket({ auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.logger) }, logger: this.logger, browser: Browsers.macOS('Desktop'), markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined });
+      const baileysLogger = this.logger.child({ module: 'baileys' }, { level: 'warn' });
+      const sock = makeWASocket({ auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, baileysLogger) }, logger: baileysLogger, browser: Browsers.macOS('Desktop'), markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined });
       this.socket = sock;
       sock.ev.on('creds.update', () => saveCreds().catch(e => this.logger.error({ error: e.message }, 'gagal simpan kredensial')));
       sock.ev.on('messages.upsert', ({ messages, type }) => { if (type !== 'notify' || this.config.connectionOnly || sock !== this.socket) return; for (const m of messages) this.onMessage(m).catch(e => this.logger.error({ error: e.message }, 'pesan gagal')); });
@@ -51,6 +52,18 @@ export class WhatsApp {
           this.onClose?.();
           const code = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.statusCode;
           this.logger.warn({ code, error: lastDisconnect?.error?.message }, 'WhatsApp terputus');
+          if (code === DisconnectReason.connectionReplaced || code === 440) {
+            const now = Date.now();
+            this.conflictAt = this.conflictAt.filter(at => now - at < 60000);
+            this.conflictAt.push(now);
+            if (this.conflictAt.length >= 3) {
+              this.logger.error('sesi WhatsApp digantikan 3 kali dalam satu menit; hentikan bot lama yang memakai auth yang sama lalu restart arnel-v3');
+              this.stopped = true;
+              sock.end?.(new Error('repeated session conflict'));
+              process.exitCode = 11;
+              return;
+            }
+          }
           if (code === DisconnectReason.loggedOut || code === 401) {
             this.logger.error('session logout; backup data, lalu hapus hanya data/baileys_auth untuk QR baru');
             this.stopped = true;
