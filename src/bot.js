@@ -5,6 +5,7 @@ import { trainer } from './trainer.js';
 import { arnelPronouns } from './voice.js';
 import { localParts } from './scheduler.js';
 import { extractImageRequest, safeImageContext } from './image-search.js';
+import { banterIssue } from './banter.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
@@ -29,6 +30,8 @@ export function styleIssue(reply, recent, userText, shortAnswer = false) {
   const previous = prior.at(-1) || '';
   if (rejectPattern.test(reply) || therapistPattern.test(reply)) return 'frasa template';
   if (shortAnswer && startsWithBareQuestion(reply)) return 'pertanyaan tanpa reaksi';
+  const banter = banterIssue(reply, recent, userText);
+  if (banter) return banter;
   if (previous && tapiAdviceEnding(previous) && tapiAdviceEnding(reply)) return 'penutup tapi dengan saran berulang';
   const last = recent.filter(x => x.role === 'assistant' && !x.media).at(-1);
   const asksAdvice = /\b(?:saran|sarankan|sebaiknya|mending|harus (?:apa|gimana)|gimana (?:caranya|baiknya))\b/i.test(userText);
