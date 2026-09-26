@@ -85,6 +85,10 @@ test('image directive is removed from chat, unsafe queries and mismatched photos
   assert.equal(safeQuery('foto nude'), '');
   assert.equal(safeQuery('portrait of woman'), '');
   assert.equal(selectPhoto([{ src: { medium: 'https://images.pexels.com/a.jpeg' }, url: 'https://www.pexels.com/photo/foo/', alt: 'portrait of a cat' }], 'kue lumpur'), null);
+  const lupis = { src: { medium: 'https://images.pexels.com/photos/1.jpeg' }, url: 'https://www.pexels.com/photo/delicious-indonesian-kue-lupis-with-tea-37104347/', alt: 'Delicious Indonesian Kue Lupis With Tea' };
+  const lumpur = { src: { medium: 'https://images.pexels.com/photos/2.jpeg' }, url: 'https://www.pexels.com/photo/kue-lumpur-2/', alt: 'Traditional kue lumpur' };
+  assert.equal(selectPhoto([lupis], 'kue lumpur traditional'), null);
+  assert.equal(selectPhoto([lupis, lumpur], 'kue lumpur traditional'), lumpur);
 });
 test('when no matching photo exists, bot does not promise one or leak search marker', async t => {
   const store = fixture(t), sent = [];
