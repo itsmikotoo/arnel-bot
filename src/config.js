@@ -32,6 +32,10 @@ export function loadConfig() {
     lightReadingChance: num('LIGHT_READING_CHANCE', .035, 0, .1),
     outputTokens: num('GEMINI_MAX_OUTPUT_TOKENS', 700, 100, 4000),
     timeoutMs: num('GEMINI_TIMEOUT_MS', 30000, 1000, 120000),
+    imageSearchKey: process.env.PEXELS_API_KEY || '',
+    imageDailyMax: num('IMAGE_SEARCH_DAILY_MAX', 4, 0, 30),
+    imageGapMinutes: num('IMAGE_SEARCH_MIN_GAP_MINUTES', 120, 1, 1440),
+    imageTimeoutMs: num('IMAGE_SEARCH_TIMEOUT_MS', 12000, 1000, 60000),
     logLevel: process.env.LOG_LEVEL || 'info',
   };
   if (!cfg.connectionOnly && (!cfg.apiKey || !cfg.allowedNumber)) throw new Error('GEMINI_API_KEY dan ALLOWED_NUMBER wajib diisi');
