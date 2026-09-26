@@ -6,6 +6,25 @@ import { arnelPronouns } from './voice.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
+const therapistPattern = /\b(perasaan kamu valid|aku bangga sama kamu|itu wajar kok)\b/i;
+const opening = reply => String(reply || '').trim().toLowerCase().match(/^(?:eh|wah|oh|oalah|wih)\b/u)?.[0] || '';
+const assumptionFinish = reply => /\b(?:pasti|dikira|kayaknya)\b[\s\S]*\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
+const tapiSih = reply => /\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
+const lastAssistants = history => history.filter(x => x.role === 'assistant').slice(-2).map(x => x.content);
+export function styleIssue(reply, recent, userText, shortAnswer = false) {
+  const prior = lastAssistants(recent);
+  const previous = prior.at(-1) || '';
+  if (rejectPattern.test(reply) || therapistPattern.test(reply)) return 'frasa template';
+  if (shortAnswer && startsWithBareQuestion(reply)) return 'pertanyaan tanpa reaksi';
+  if (previous && assumptionFinish(previous) && assumptionFinish(reply)) return 'rumus asumsi dan penutup berulang';
+  if (previous && tapiSih(previous) && tapiSih(reply)) return 'penutup tapi sih berulang';
+  if (prior.length === 2 && prior.every(x => opening(x) && opening(x) === opening(reply))) return 'pembuka berulang';
+  if (prior.length === 2 && prior.every(x => /\?\s*$/.test(x.trim())) && /\?\s*$/.test(reply.trim())) return 'selalu menutup dengan pertanyaan';
+  const userWords = String(userText || '').toLowerCase().match(/\p{L}+/gu) || [];
+  const replyWords = String(reply || '').toLowerCase().replace(/^(?:eh|wah|oh|oalah|wih)\b[,.! ]*/u, '').match(/\p{L}+/gu) || [];
+  if (userWords.length >= 3 && userWords.slice(0, 3).every((word, i) => replyWords[i] === word)) return 'mengulang kata user';
+  return '';
+}
 export function isShortAnswerToQuestion(text, history) {
   const last = history.at(-1);
   const clean = String(text || '').trim();
@@ -39,20 +58,24 @@ export class Bot {
     const recent = this.memory.history(jid);
     const shortAnswer = !media && isShortAnswerToQuestion(text, recent);
     const history = toGeminiHistory(recent);
-    const system = shortAnswer ? `${prompt}\n\nKonteks balasan ini: user menjawab singkat pertanyaanmu. Mulai dengan reaksi/komentar personal tentang jawabannya, jangan mulai dengan pertanyaan. Tidak perlu memaksa pertanyaan lanjutan.` : prompt;
+    const lastTime = recent.at(-1)?.createdAt;
+    const gapHours = lastTime ? (Date.now() - lastTime) / 3600000 : 0;
+    const timing = !media && lastTime && gapHours >= 3 && gapHours <= 48 ? 'Ada jeda beberapa jam sejak chat terakhir. Boleh singgung dengan ringan bila terasa alami; jangan menuntut alasan user.' : 'Jangan berpura-pura ada jeda panjang jika percakapan sedang beruntun.';
+    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}`;
     const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : text }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
-    if ((rejectPattern.test(result) || shortAnswer && startsWithBareQuestion(result)) && !media) {
-      this.logger.info('reply kena filter gaya; regenerasi satu kali');
+    const issue = !media && styleIssue(result, recent, text, shortAnswer);
+    if (issue) {
+      this.logger.info({ issue }, 'reply kena filter gaya; regenerasi satu kali');
       try {
-        const retry = await this.gemini.generate({ system: `${system}\n\nBalasan barusan terlalu generik atau langsung berupa pertanyaan. Jawab ulang: reaksi spesifik terhadap jawaban user lebih dulu, tanpa pembuka template; kalau tidak perlu, jangan bertanya.`, history, parts });
-        if (retry.trim() && !rejectPattern.test(retry) && !(shortAnswer && startsWithBareQuestion(retry))) result = retry;
+        const retry = await this.gemini.generate({ system: `${system}\n\nBalasan barusan bermasalah: ${issue}. Tulis ulang dengan struktur lain yang alami, reaksi spesifik tanpa mengulang kata user. Tidak harus bertanya; jangan pakai penutup kesimpulan template.`, history, parts });
+        if (retry.trim() && !styleIssue(retry, recent, text, shortAnswer)) result = retry;
       } catch (error) { this.logger.warn({ error: error.message }, 'regenerasi gagal, memakai balasan pertama'); }
     }
     if (shortAnswer && startsWithBareQuestion(result)) {
-      // Jangan kirim pertanyaan polos jika regenerasi gagal; gunakan konteks user sebagai reaksi singkat.
-      result = `ohh ${text.trim().replace(/[.!?]+$/u, '')}`;
+      // Bila model dua kali bertanya duluan, jangan memantulkan isi jawaban user sebagai fallback.
+      result = 'oalahh';
     }
     this.logger.debug({ chatId: jid, flaggedPattern: rejectPattern.test(result) }, 'Gemini selesai');
     return result;
