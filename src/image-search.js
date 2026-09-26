@@ -18,8 +18,10 @@ export function extractImageRequest(value) {
   return { text: clean, query: matches.length ? safeQuery(matches.at(-1)[1]) : '', requested: /\[\[\s*search_image\s*:/iu.test(text) };
 }
 const relevantWords = text => new Set(String(text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
+const genericSearchWords = new Set(['foto', 'photo', 'image', 'gambar', 'contoh', 'referensi', 'reference', 'traditional', 'tradisional', 'indonesian', 'indonesia', 'delicious', 'food', 'makanan', 'dessert', 'snack', 'kue', 'cake', 'with', 'the', 'and']);
 export function selectPhoto(photos, query) {
-  const words = relevantWords(query);
+  const words = [...relevantWords(query)].filter(word => !genericSearchWords.has(word));
+  if (!words.length) return null;
   const candidates = (photos || []).slice(0, 5).filter(photo => {
     try {
       const image = new URL(photo.src?.medium || '');
@@ -27,9 +29,12 @@ export function selectPhoto(photos, query) {
       return image.protocol === 'https:' && image.hostname === 'images.pexels.com' && page.protocol === 'https:' && page.hostname === 'www.pexels.com' && !blocked.test(photo.alt || '') && !blocked.test(photo.photographer || '');
     } catch { return false; }
   });
-  const ranked = candidates.map(photo => ({ photo, score: [...words].filter(word => relevantWords(photo.alt || '').has(word)).length }));
+  const ranked = candidates.map(photo => {
+    const description = relevantWords(`${photo.alt || ''} ${new URL(photo.url).pathname}`);
+    return { photo, score: words.filter(word => description.has(word)).length };
+  });
   ranked.sort((a, b) => b.score - a.score);
-  return ranked[0]?.score > 0 ? ranked[0].photo : null;
+  return ranked[0]?.score >= Math.ceil(words.length * .6) ? ranked[0].photo : null;
 }
 export class ImageSearch {
   constructor(config, store, logger, fetchFn = fetch, clock = () => Date.now()) {
