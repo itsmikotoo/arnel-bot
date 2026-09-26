@@ -6,6 +6,19 @@ import { arnelPronouns } from './voice.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
+export function isShortAnswerToQuestion(text, history) {
+  const last = history.at(-1);
+  const clean = String(text || '').trim();
+  return last?.role === 'assistant' && /\?/.test(last.content) && clean.length > 0 && clean.length <= 65 && clean.split(/\s+/).length <= 8 && !/[?!]/.test(clean);
+}
+export function startsWithBareQuestion(reply) {
+  const first = String(reply || '').trim().split(/\s*\|\|\s*|\n/u)[0].trim();
+  if (!first.includes('?')) return false;
+  const before = first.slice(0, first.indexOf('?'));
+  if (/[.!]/.test(before)) return false;
+  const lead = before.split(',')[0].trim();
+  return /^(?:serius|beneran|kok|kenapa|gimana|apa|apaan|emang|jadi|ngedit apaan|lagi apa)\b/i.test(lead) || !before.includes(',');
+}
 export function splitReply(text, max = 6) {
   return arnelPronouns(text).replace(/\p{Extended_Pictographic}/gu, '').split(/\s*\|\|\s*|\n{2,}/u).map(s => s.trim()).filter(Boolean).slice(0, max);
 }
@@ -23,16 +36,23 @@ export class Bot {
   }
   async ask(jid, text, media = null) {
     const prompt = buildPrompt({ jid, query: text, memory: this.memory, relationship: this.relationship, life: this.life, story: this.story, style: this.style });
-    const history = toGeminiHistory(this.memory.history(jid));
+    const recent = this.memory.history(jid);
+    const shortAnswer = !media && isShortAnswerToQuestion(text, recent);
+    const history = toGeminiHistory(recent);
+    const system = shortAnswer ? `${prompt}\n\nKonteks balasan ini: user menjawab singkat pertanyaanmu. Mulai dengan reaksi/komentar personal tentang jawabannya, jangan mulai dengan pertanyaan. Tidak perlu memaksa pertanyaan lanjutan.` : prompt;
     const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : text }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
-    let result = await this.gemini.generate({ system: prompt, history, parts });
-    if (rejectPattern.test(result) && !media) {
+    let result = await this.gemini.generate({ system, history, parts });
+    if ((rejectPattern.test(result) || shortAnswer && startsWithBareQuestion(result)) && !media) {
       this.logger.info('reply kena filter gaya; regenerasi satu kali');
       try {
-        const retry = await this.gemini.generate({ system: `${prompt}\n\nBalasan barusan mengandung frasa generik. Jawab ulang lebih spesifik ke pesan dan tanpa pembuka template.`, history, parts });
-        if (retry.trim() && !rejectPattern.test(retry)) result = retry;
+        const retry = await this.gemini.generate({ system: `${system}\n\nBalasan barusan terlalu generik atau langsung berupa pertanyaan. Jawab ulang: reaksi spesifik terhadap jawaban user lebih dulu, tanpa pembuka template; kalau tidak perlu, jangan bertanya.`, history, parts });
+        if (retry.trim() && !rejectPattern.test(retry) && !(shortAnswer && startsWithBareQuestion(retry))) result = retry;
       } catch (error) { this.logger.warn({ error: error.message }, 'regenerasi gagal, memakai balasan pertama'); }
+    }
+    if (shortAnswer && startsWithBareQuestion(result)) {
+      // Jangan kirim pertanyaan polos jika regenerasi gagal; gunakan konteks user sebagai reaksi singkat.
+      result = `ohh ${text.trim().replace(/[.!?]+$/u, '')}`;
     }
     this.logger.debug({ chatId: jid, flaggedPattern: rejectPattern.test(result) }, 'Gemini selesai');
     return result;
