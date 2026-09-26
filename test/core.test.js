@@ -78,10 +78,21 @@ test('rare reading variation is sampled independently of message content and pre
   assert.doesNotMatch(prompts[1], /Untuk balasan ini, baca pesan secara santai/);
 });
 test('image directive is removed from chat, unsafe queries and mismatched photos are rejected', () => {
-  assert.deepEqual(extractImageRequest('mirip ini\n[[search_image: kue lumpur kismis]]'), { text: 'mirip ini', query: 'kue lumpur kismis' });
+  assert.deepEqual(extractImageRequest('mirip ini\n[[search_image: kue lumpur kismis]]'), { text: 'mirip ini', query: 'kue lumpur kismis', requested: true });
+  assert.deepEqual(extractImageRequest('sebentar aku cari fotonya dulu [[search_image: kue lumpur traditional]]'), { text: 'sebentar aku cari fotonya dulu', query: 'kue lumpur traditional', requested: true });
+  assert.equal(extractImageRequest('kayak gini || [[search_image: kue lumpur]]').text, 'kayak gini');
+  assert.equal(extractImageRequest('sebentar [[search_image: kue lumpur').text, 'sebentar');
   assert.equal(safeQuery('foto nude'), '');
   assert.equal(safeQuery('portrait of woman'), '');
   assert.equal(selectPhoto([{ src: { medium: 'https://images.pexels.com/a.jpeg' }, url: 'https://www.pexels.com/photo/foo/', alt: 'portrait of a cat' }], 'kue lumpur'), null);
+});
+test('when no matching photo exists, bot does not promise one or leak search marker', async t => {
+  const store = fixture(t), sent = [];
+  const bot = new Bot({ config: {}, logger: { warn() {} }, store, memory: new Memory(store), life: new Life(store), relationship: new Relationship(store), story: { track() {} }, imageSearch: { enabled: true, search: async () => null } });
+  bot.ask = async () => 'sebentar aku cari fotonya dulu [[search_image: kue lumpur traditional]]';
+  bot.send = async (_jid, text) => sent.push(text);
+  await bot.reply({}, 'jid', 'mau lihat bentuknya', null);
+  assert.deepEqual(sent, ['belum nemu foto referensi yang pas']);
 });
 test('Pexels search downloads a relevant photo within persistent separate quota', async t => {
   const store = fixture(t), calls = [];
