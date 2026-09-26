@@ -12,7 +12,7 @@ import { Gemini, toGeminiHistory } from '../src/gemini.js';
 import { allowed, incoming } from '../src/whatsapp.js';
 import { Story } from '../src/story.js';
 import { arnelPronouns } from '../src/voice.js';
-import { splitReply } from '../src/bot.js';
+import { Bot, splitReply, isShortAnswerToQuestion, startsWithBareQuestion } from '../src/bot.js';
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-test-'));
@@ -40,6 +40,18 @@ test('trainer correction persists and avoids stale last assistant', async t => {
 test('Arnel keeps aku/kamu despite imported slang and preserves unrelated words', () => {
   assert.deepEqual(splitReply('gw lulus kedokteran ui || traktirannya jangan lu tagih ya'), ['aku lulus kedokteran ui', 'traktirannya jangan kamu tagih ya']);
   assert.equal(arnelPronouns('Gue mau cerita ke elu, bukan soal lulus'), 'Aku mau cerita ke kamu, bukan soal lulus');
+});
+test('short answer to Arnel question gets a reaction before any follow-up', async t => {
+  const store = fixture(t), memory = new Memory(store), life = new Life(store);
+  memory.addMessage('jid', 'assistant', 'lagi ngapain nih?');
+  assert.equal(isShortAnswerToQuestion('lagi ngedit', memory.history('jid')), true);
+  assert.equal(startsWithBareQuestion('ngedit apaan tuh, project?'), true);
+  assert.equal(startsWithBareQuestion('oh pantes sepi, ngedit apaan?'), false);
+  const prompts = [], outputs = ['ngedit apaan tuh, project?', 'oh pantes sepi || lagi ngedit apa emangnya?'];
+  const bot = new Bot({ config: {}, logger: { info() {}, warn() {}, debug() {} }, store, memory, relationship: { context: () => '' }, life, story: { active: () => [] }, style: { examples: () => [] }, gemini: { generate: async request => { prompts.push(request.system); return outputs.shift(); } } });
+  assert.equal(await bot.ask('jid', 'lagi ngedit'), 'oh pantes sepi || lagi ngedit apa emangnya?');
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0], /Mulai dengan reaksi/);
 });
 test('history merges adjacent messages with the same role for Gemini', () => {
   assert.deepEqual(toGeminiHistory([{ role: 'assistant', content: 'old' }, { role: 'user', content: 'a' }, { role: 'user', content: 'b' }]), [{ role: 'user', parts: [{ text: 'a\nb' }] }]);
