@@ -1,0 +1,18 @@
+// Conservative surface cues, not a semantic judgment about whether Arnel "won".
+export function rhetoricalCounter(text) {
+  return String(text || '').split(/\|\||[.!?\n]/).some(clause =>
+    /\b(?:kurang|maunya|emang|emangnya|memang)\b.{0,85}\b(?:apa|berapa(?:an)?|siapa|gimana|mana)\b.{0,65}\b(?:coba|emang|sih|sampai|sampe|puas)\b/i.test(clause)
+    || /\b(?:siapa|apa)\b.{0,30}\b(?:yang bilang|kamu kira|kata kamu)\b/i.test(clause));
+}
+export const analogy = text => /\b(?:kayak|kek|seperti|ibarat|serasa)\s+\S|\bkaya\s+(?!(?:raya|akan)\b)\S/iu.test(String(text || ''));
+export function banterIssue(reply, history, userText, now = Date.now()) {
+  const recent = history.filter(m => m.role === 'assistant' && !m.media && (!m.createdAt || now - m.createdAt < 30 * 60000)).slice(-3);
+  if (recent.length && rhetoricalCounter(reply) && rhetoricalCounter(recent.at(-1).content)) {
+    return 'counter retoris berulang; ubah fungsi respons, boleh menerima godaan tanpa membalas tantangan';
+  }
+  const asksComparison = /\b(?:bentuk|mirip|perbandingan|bandingkan|bandingin|bedanya|seperti apa|kayak apa|contoh)\b/i.test(userText);
+  if (!asksComparison && analogy(reply) && recent.filter(m => analogy(m.content)).length >= 2) {
+    return 'perumpamaan berulang; gunakan reaksi langsung tanpa analogi atau punchline yang dipaksakan';
+  }
+  return '';
+}
