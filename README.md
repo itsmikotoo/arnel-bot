@@ -99,3 +99,9 @@ Importer menyimpan contoh respons beserta pesan sebelumnya bila ada; seleksi men
 | `scripts/import-style.js`, `scripts/migrate-v2.js` | Import gaya dan migrasi v2 |
 
 `PROACTIVE_ENABLED=true` menghidupkan jadwal `PROACTIVE_TIMES` serta waktu acak atau saat lama sepi. Batas harian, jeda, dan aktivitas terakhir mencegah spam. Zona waktu memakai `TZ=Asia/Jakarta`. `CONNECTION_ONLY=true` tidak membutuhkan API key dan tidak membalas pesan. `LOG_LEVEL=info` mencatat status dan error tanpa isi chat atau key. State dalam `data/` disimpan via rename atomik; backup berkala tetap disarankan. **Jalankan hanya satu instance PM2** untuk satu `DATA_DIR` karena JSON store tidak dirancang untuk beberapa penulis.
+
+### Proactive tanpa menumpuk
+
+Setelah satu pesan proactive, scheduler menunggu balasan user apa pun (teks, foto, atau sticker yang didukung) sebelum boleh memulai lagi. Balasan tidak harus mengutip pesan tertentu. Status menunggu disimpan dalam `proactive_state.json`, tetap berlaku setelah restart dan pergantian hari; data lama diperiksa dari waktu proactive terakhir dan histori user. Pengiriman dengan hasil jaringan yang tidak pasti juga menunggu balasan agar tidak menggandakan pesan.
+
+Gemini membuat isi secara dinamis dari persona, life state, mood, story threads dan waktu lokal (`TZ`). Tema tidak dibatasi pada masak atau belajar. Scheduler membandingkan dengan 30 pesan proactive terkirim terakhir serta 20 balasan terbaru di histori, termasuk saat upgrade. Jika terlalu mirip, Gemini diminta mengganti gagasan sekali; bila tetap mirip, pesan dilewati dan percobaan ditunda satu jam. Satu inisiatif dikirim sebagai satu bubble. Batas harian dan jeda lama tetap berlaku setelah user membalas; jadwal yang terlewat tidak dikirim sekaligus.
