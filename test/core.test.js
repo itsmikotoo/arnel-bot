@@ -11,6 +11,8 @@ import { trainer } from '../src/trainer.js';
 import { Gemini, toGeminiHistory } from '../src/gemini.js';
 import { allowed, incoming } from '../src/whatsapp.js';
 import { Story } from '../src/story.js';
+import { arnelPronouns } from '../src/voice.js';
+import { splitReply } from '../src/bot.js';
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-test-'));
@@ -29,11 +31,15 @@ test('life state advances over months, survives restart, and manual stage wins',
 test('trainer correction persists and avoids stale last assistant', async t => {
   const store = fixture(t), memory = new Memory(store), relationship = new Relationship(store), life = new Life(store);
   memory.addMessage('jid', 'user', 'capek'); memory.addMessage('jid', 'assistant', 'semangat ya');
-  assert.equal(await trainer('!teach abis ngapain', 'jid', { memory, relationship, life }), 'nah gitu ya || gw inget');
+  assert.equal(await trainer('!teach abis ngapain', 'jid', { memory, relationship, life }), 'nah gitu ya || aku inget');
   assert.equal(memory.exchange('jid').output, 'abis ngapain');
   assert.equal(memory.training('jid', 'capek')[0].output, 'abis ngapain');
   assert.match(await trainer('!life stage accepted', 'jid', { memory, relationship, life }), /diterima/);
   assert.equal(life.get().stage, 'accepted');
+});
+test('Arnel keeps aku/kamu despite imported slang and preserves unrelated words', () => {
+  assert.deepEqual(splitReply('gw lulus kedokteran ui || traktirannya jangan lu tagih ya'), ['aku lulus kedokteran ui', 'traktirannya jangan kamu tagih ya']);
+  assert.equal(arnelPronouns('Gue mau cerita ke elu, bukan soal lulus'), 'Aku mau cerita ke kamu, bukan soal lulus');
 });
 test('history merges adjacent messages with the same role for Gemini', () => {
   assert.deepEqual(toGeminiHistory([{ role: 'assistant', content: 'old' }, { role: 'user', content: 'a' }, { role: 'user', content: 'b' }]), [{ role: 'user', parts: [{ text: 'a\nb' }] }]);

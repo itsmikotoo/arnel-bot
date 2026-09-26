@@ -2,11 +2,12 @@ import { buildPrompt } from './persona.js';
 import { toGeminiHistory } from './gemini.js';
 import { incoming, allowed, mediaBuffer } from './whatsapp.js';
 import { trainer } from './trainer.js';
+import { arnelPronouns } from './voice.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
 export function splitReply(text, max = 6) {
-  return String(text).replace(/\p{Extended_Pictographic}/gu, '').split(/\s*\|\|\s*|\n{2,}/u).map(s => s.trim()).filter(Boolean).slice(0, max);
+  return arnelPronouns(text).replace(/\p{Extended_Pictographic}/gu, '').split(/\s*\|\|\s*|\n{2,}/u).map(s => s.trim()).filter(Boolean).slice(0, max);
 }
 export class Bot {
   constructor({ config, logger, store, memory, relationship, life, story, style, gemini, wa, scheduler }) {
