@@ -3,6 +3,7 @@ import { toGeminiHistory } from './gemini.js';
 import { incoming, allowed, mediaBuffer } from './whatsapp.js';
 import { trainer } from './trainer.js';
 import { arnelPronouns } from './voice.js';
+import { localParts } from './scheduler.js';
 import { extractImageRequest, safeImageContext } from './image-search.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -183,9 +184,11 @@ export class Bot {
       } catch (error) { this.logger.warn({ error: error.message }, 'foto referensi tidak terkirim'); }
     }
   }
-  async proactive(jid, reason) {
+  async proactive(jid, reason, context = {}) {
     const recent = this.memory.history(jid, 8).map(m => `${m.role === 'assistant' ? 'arnel' : 'user'}: ${m.content}`).join('\n');
-    const request = `Mulai chat duluan (${reason}). Sambung topik terbaru bila cocok, atau ceritakan kejadian kecil dari status hidup aktif. Satu bubble biasanya cukup. Jangan mengada-ada user menghilang atau bertanya hal yang sudah terjawab.\nPercakapan terakhir:\n${recent || '(belum ada)'}`;
+    const { day, time } = localParts(new Date(context.now || Date.now()));
+    const previous = (context.previous || []).slice(-30).map(text => `- ${text}`).join('\n');
+    const request = `Mulai chat duluan (${reason}). Waktu nyata sekarang ${day} pukul ${time} (${process.env.TZ || 'Asia/Jakarta'}). Cocokkan ucapan tentang sekarang dengan waktu ini; kejadian lampau harus jelas waktunya. Jangan mengulang kisah lama seolah baru terjadi.\nBuat satu bubble yang utuh. Temukan sudut obrolan baru sesuai mood, fase hidup, dan konteks: bisa observasi lingkungan, hal receh, rasa penasaran, sesuatu yang mengingatkan pada obrolan user, atau kelanjutan cerita yang benar-benar punya perkembangan. Minat masak dan pendidikan bukan kewajiban di tiap pesan. Jangan selalu mengaitkan semuanya dengan masak atau biokimia. Jangan mengarang detail tentang user atau peristiwa besar hidup Arnel. Contoh gaya hanya acuan bahasa, bukan bahan cerita untuk disalin.\n${context.retry ? 'Draf sebelumnya terlalu mirip. Ganti gagasan dan tema, bukan sekadar sinonim.\n' : ''}Jangan ulang pesan-pesan berikut atau versi parafrasenya:\n${previous || '(belum ada)'}\nPercakapan terakhir:\n${recent || '(belum ada)'}`;
     return this.ask(jid, request, null, { proactive: true });
   }
   async shutdown() {
