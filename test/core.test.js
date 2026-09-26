@@ -12,7 +12,8 @@ import { Gemini, toGeminiHistory } from '../src/gemini.js';
 import { allowed, incoming } from '../src/whatsapp.js';
 import { Story } from '../src/story.js';
 import { arnelPronouns } from '../src/voice.js';
-import { Bot, splitReply, isShortAnswerToQuestion, startsWithBareQuestion, styleIssue } from '../src/bot.js';
+import { Bot, splitReply, isShortAnswerToQuestion, startsWithBareQuestion, styleIssue, useLightReading } from '../src/bot.js';
+import { CORRECTION_RULE, LIGHT_READING_VARIANT } from '../src/persona.js';
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-test-'));
@@ -62,6 +63,18 @@ test('style check catches repeated structure and echo, but allows an isolated ca
   assert.equal(styleIssue('wah capek banget hari ini kamu', [], 'capek banget hari ini'), 'frasa template');
   assert.equal(styleIssue('capek banget hari ini ya kamu', [], 'capek banget hari ini'), 'mengulang kata user');
   assert.equal(styleIssue('itu wajar kok', [], 'aku kesel'), 'frasa template');
+});
+test('rare reading variation is sampled independently of message content and preserves facts', async t => {
+  assert.equal(useLightReading(.035, () => .02), true);
+  assert.equal(useLightReading(.035, () => .04), false);
+  assert.match(LIGHT_READING_VARIANT, /jangan sengaja salah memahami/);
+  assert.match(CORRECTION_RULE, /jangan memakai frasa pengakuan yang tetap/i);
+  const store = fixture(t), memory = new Memory(store), life = new Life(store), prompts = [];
+  const bot = new Bot({ config: { lightReadingChance: 1 }, logger: { info() {}, warn() {}, debug() {} }, store, memory, relationship: { context: () => '' }, life, story: { active: () => [] }, style: { examples: () => [] }, gemini: { generate: async request => { prompts.push(request.system); return 'iya, lanjut dulu'; } } });
+  await bot.ask('jid', 'cerita tentang project');
+  assert.match(prompts[0], /life state, dan story continuity/);
+  await bot.ask('jid', 'Mulai chat duluan', null, { proactive: true });
+  assert.doesNotMatch(prompts[1], /Untuk balasan ini, baca pesan secara santai/);
 });
 test('history merges adjacent messages with the same role for Gemini', () => {
   assert.deepEqual(toGeminiHistory([{ role: 'assistant', content: 'old' }, { role: 'user', content: 'a' }, { role: 'user', content: 'b' }]), [{ role: 'user', parts: [{ text: 'a\nb' }] }]);
