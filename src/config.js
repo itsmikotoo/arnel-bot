@@ -29,6 +29,7 @@ export function loadConfig() {
     bubbles: num('MAX_REPLY_BUBBLES', 6, 1, 10),
     quoteChance: num('REPLY_QUOTE_CHANCE', .25, 0, 1),
     temperature: num('GEMINI_TEMPERATURE', 1.05, 0, 2),
+    lightReadingChance: num('LIGHT_READING_CHANCE', .035, 0, .1),
     outputTokens: num('GEMINI_MAX_OUTPUT_TOKENS', 700, 100, 4000),
     timeoutMs: num('GEMINI_TIMEOUT_MS', 30000, 1000, 120000),
     logLevel: process.env.LOG_LEVEL || 'info',
