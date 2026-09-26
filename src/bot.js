@@ -1,4 +1,4 @@
-import { buildPrompt } from './persona.js';
+import { buildPrompt, LIGHT_READING_VARIANT } from './persona.js';
 import { toGeminiHistory } from './gemini.js';
 import { incoming, allowed, mediaBuffer } from './whatsapp.js';
 import { trainer } from './trainer.js';
@@ -11,6 +11,7 @@ const opening = reply => String(reply || '').trim().toLowerCase().match(/^(?:eh|
 const assumptionFinish = reply => /\b(?:pasti|dikira|kayaknya)\b[\s\S]*\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
 const tapiSih = reply => /\btapi\b[^.!?\n]{2,80}\bsih\s*[.!?]?\s*$/iu.test(String(reply || '').replace(/\|\|/g, ' '));
 const lastAssistants = history => history.filter(x => x.role === 'assistant').slice(-2).map(x => x.content);
+export const useLightReading = (chance, random = Math.random) => random() < chance;
 export function styleIssue(reply, recent, userText, shortAnswer = false) {
   const prior = lastAssistants(recent);
   const previous = prior.at(-1) || '';
@@ -54,15 +55,16 @@ export class Bot {
     next.finally(() => { if (this.queues.get(jid) === next) this.queues.delete(jid); }).catch(() => {});
     return next;
   }
-  async ask(jid, text, media = null) {
+  async ask(jid, text, media = null, options = {}) {
     const prompt = buildPrompt({ jid, query: text, memory: this.memory, relationship: this.relationship, life: this.life, story: this.story, style: this.style });
     const recent = this.memory.history(jid);
-    const shortAnswer = !media && isShortAnswerToQuestion(text, recent);
+    const shortAnswer = !media && !options.proactive && isShortAnswerToQuestion(text, recent);
     const history = toGeminiHistory(recent);
     const lastTime = recent.at(-1)?.createdAt;
     const gapHours = lastTime ? (Date.now() - lastTime) / 3600000 : 0;
     const timing = !media && lastTime && gapHours >= 3 && gapHours <= 48 ? 'Ada jeda beberapa jam sejak chat terakhir. Boleh singgung dengan ringan bila terasa alami; jangan menuntut alasan user.' : 'Jangan berpura-pura ada jeda panjang jika percakapan sedang beruntun.';
-    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}`;
+    const lightReading = !media && !options.proactive && useLightReading(this.config.lightReadingChance ?? .035);
+    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}`;
     const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : text }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
@@ -164,7 +166,7 @@ export class Bot {
   async proactive(jid, reason) {
     const recent = this.memory.history(jid, 8).map(m => `${m.role === 'assistant' ? 'arnel' : 'user'}: ${m.content}`).join('\n');
     const request = `Mulai chat duluan (${reason}). Sambung topik terbaru bila cocok, atau ceritakan kejadian kecil dari status hidup aktif. Satu bubble biasanya cukup. Jangan mengada-ada user menghilang atau bertanya hal yang sudah terjawab.\nPercakapan terakhir:\n${recent || '(belum ada)'}`;
-    return this.ask(jid, request);
+    return this.ask(jid, request, null, { proactive: true });
   }
   async shutdown() {
     this.stopping = true; this.scheduler.stop();
