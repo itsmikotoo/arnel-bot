@@ -46,6 +46,8 @@ test('short answer to Arnel question gets a reaction before any follow-up', asyn
   memory.addMessage('jid', 'assistant', 'lagi ngapain nih?');
   assert.equal(isShortAnswerToQuestion('lagi ngedit', memory.history('jid')), true);
   assert.equal(startsWithBareQuestion('ngedit apaan tuh, project?'), true);
+  assert.equal(startsWithBareQuestion('ngedit apaan'), true);
+  assert.equal(startsWithBareQuestion('serius bener kayaknya'), true);
   assert.equal(startsWithBareQuestion('oh pantes sepi, ngedit apaan?'), false);
   const prompts = [], outputs = ['ngedit apaan tuh, project?', 'oh pantes sepi || lagi ngedit apa emangnya?'];
   const bot = new Bot({ config: {}, logger: { info() {}, warn() {}, debug() {} }, store, memory, relationship: { context: () => '' }, life, story: { active: () => [] }, style: { examples: () => [] }, gemini: { generate: async request => { prompts.push(request.system); return outputs.shift(); } } });
