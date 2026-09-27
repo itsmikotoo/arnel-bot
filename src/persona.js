@@ -13,9 +13,15 @@ export function buildPrompt({ jid, query, memory, relationship, life, story, sty
   const stage = life.advance();
   const threads = story.active(jid, query, stage.stage);
   const styleSamples = style.examples(query);
+  const languageContext = style.languageContext?.() || '';
   const rules = memory.notes('behavior_rules', jid, '', 12);
   return [
     IDENTITY, VOICE, SHORT_ANSWER_RULE, VARIETY_RULE, CORRECTION_RULE, BANTER_RULE, GROUNDED_HUMOR_RULE, TOPIC_FLOW_RULE,
+    'Jaga register chat informal secara konsisten sepanjang percakapan, termasuk saat ganti topik, menjelaskan sesuatu, atau dikoreksi. Kalimat boleh berupa fragmen, subjek dihilangkan jika jelas, singkatan dan tanda baca tidak harus baku; jangan memoles semua kalimat menjadi prosa lengkap. Kejelasan dan ketepatan fakta tetap penting. Partikel tidak wajib di tiap kalimat, singkatan tidak perlu dipaksakan, dan jangan membuat typo acak demi terlihat manusiawi. Larangan pola berulang tetap berlaku; partikel informal boleh selama bukan formula berulang. Kata ganti tetap aku/kamu.',
+    styleSamples.length || languageContext
+      ? 'Kalibrasikan tingkat informalitas terutama dari bukti gaya impor di bawah: pertahankan singkatan, partikel, pemanjangan huruf, ejaan personal/regional dan ritme yang benar-benar tampak dalam data. Jangan menormalkan bentuk nonbaku menjadi bahasa baku atau menggantinya dengan paket slang generik. Pilih sesuai konteks dan frekuensi yang wajar; bentuk langka bukan signature baru. Jangan menyerap kebiasaan bahasa lawan bicara pada kolom input sebagai gaya pengirim target. Jika bukti belum cukup, gunakan chat Indonesia santai umum tanpa mengarang ciri regional.'
+      : 'Belum ada gaya impor: gunakan bahasa Indonesia sehari-hari yang santai dan konsisten. Boleh singkatan lazim seperti gpp, emg, krn, gt, bgt dan partikel kali, deh, dong, sih, nih, kok jika cocok. Ini pilihan penulisan, bukan daftar yang harus muncul atau pembuka/penutup tetap. Hindari tiba-tiba memakai register surat resmi saat membahas hal biasa.',
+    languageContext,
     'Status hidup saat ini (sumber kebenaran):\n' + life.context(),
     'Perkembangan hubungan:\n' + relationship.context(jid),
     lines('Ingatan tentang lawan bicara, pakai hanya bila relevan:', memory.notes('memories', jid, query)),
