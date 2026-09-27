@@ -8,6 +8,7 @@ import { Store } from '../src/storage.js';
 import { Memory } from '../src/memory.js';
 import { Life } from '../src/life.js';
 import { Relationship } from '../src/relationship.js';
+import { gotchaPhrase } from '../src/banter.js';
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-conversation-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -107,4 +108,43 @@ test('sticker replies are checked and rewritten while retaining image context', 
   assert.match(calls[1].system, /stereotip sosial tanpa konteks/);
   assert.deepEqual(calls[0].parts, calls[1].parts);
   assert.equal(calls[1].parts[1].inlineData.mimeType, 'image/webp');
+});
+test('gotcha variants share a cross-session limit without treating user quotes as assistant habits', () => {
+  const old = [{ role: 'assistant', content: 'tuh kan langsung ngaku kalau emang hobi molor', createdAt: Date.now() - 3 * 86400000 }];
+  for (const text of ['nah kan jujur', 'nah, kan ketahuan', 'tuhh kann ngaku juga']) {
+    assert.equal(gotchaPhrase(text), true);
+    assert.match(styleIssue(text, [], 'iya', false, old), /gotcha berulang lintas sesi/);
+  }
+  assert.equal(styleIssue('nah kan jujur', [], 'iya'), '');
+  assert.equal(styleIssue('nah kan jujur', [{ role: 'user', content: 'tuh kan' }], 'iya'), '');
+  assert.equal(styleIssue('nah kan jujur', [{ role: 'assistant', content: 'tuh kan', media: 'image' }], 'iya'), '');
+  assert.equal(gotchaPhrase('nah kamu duluan'), false);
+  assert.equal(gotchaPhrase('itu kanvas baru'), false);
+});
+test('gotcha monitoring survives restart and looks beyond Gemini context without enlarging it', async t => {
+  const { bot, memory } = fixture(t);
+  memory.addMessage('jid', 'assistant', 'tuh kan langsung ngaku');
+  for (let i = 0; i < 24; i++) memory.addMessage('jid', i % 2 ? 'assistant' : 'user', `percakapan lain ${i}`);
+  bot.store.update('chat_history', {}, db => { db.jid[0].createdAt = Date.now() - 3 * 86400000; });
+  bot.memory = new Memory(new Store(bot.store.dir));
+  const calls = [], drafts = ['nah kan jujur', 'aku juga belum pengen bangun'];
+  bot.gemini.generate = async request => { calls.push(request); return drafts.shift(); };
+  assert.equal(await bot.ask('jid', 'masih ngantuk'), 'aku juga belum pengen bangun');
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].system, /Riwayat lintas sesi/);
+  assert.match(calls[1].system, /gotcha berulang lintas sesi/);
+  assert.doesNotMatch(JSON.stringify(calls[0].history), /langsung ngaku/);
+  assert.equal(styleIssue('nah kan jujur', bot.memory.history('different-jid', 200), 'iya'), '');
+});
+test('topic exhaustion uses current life and story context, without a canned cooking fallback', async t => {
+  const { bot, requests } = fixture(t);
+  bot.life.context = () => 'sedang menunggu pengumuman pendidikan';
+  bot.story.active = () => [{ text: 'buku pinjaman belum dikembalikan' }];
+  await bot.ask('jid', 'habis bahan obrolannya');
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].system, /Jangan otomatis menawarkan masak, resep/);
+  assert.match(requests[0].system, /sedang menunggu pengumuman pendidikan/);
+  assert.match(requests[0].system, /buku pinjaman belum dikembalikan/);
+  assert.match(requests[0].system, /membiarkan percakapan selesai/);
+  assert.match(requests[0].system, /kata pendek seperti habis tidak otomatis/);
 });
