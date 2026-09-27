@@ -5,7 +5,7 @@ import { trainer } from './trainer.js';
 import { arnelPronouns } from './voice.js';
 import { localParts } from './scheduler.js';
 import { extractImageRequest, safeImageContext } from './image-search.js';
-import { banterIssue } from './banter.js';
+import { banterIssue, hasGotchaHistory } from './banter.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rejectPattern = /\b(wah(?:h+)?[,.! ]|seru juga ya|tumben|sok tau|semangat ya|yang penting kamu|aku di sini kok|gpp santai aja|semoga)\b/i;
@@ -25,12 +25,12 @@ export function tapiAdviceEnding(text) {
   const tail = String(text || '').replace(/\|\|/g, '.').match(/\btapi\b([^.!?\n]*)[.!?\s]*$/i)?.[1];
   return Boolean(tail && (adviceIntent(tail) || /\b(?:aja|sebaiknya|mending|coba|harus)\b/i.test(tail)));
 }
-export function styleIssue(reply, recent, userText, shortAnswer = false) {
+export function styleIssue(reply, recent, userText, shortAnswer = false, phraseHistory = recent) {
   const prior = lastAssistants(recent);
   const previous = prior.at(-1) || '';
   if (rejectPattern.test(reply) || therapistPattern.test(reply)) return 'frasa template';
   if (shortAnswer && startsWithBareQuestion(reply)) return 'pertanyaan tanpa reaksi';
-  const banter = banterIssue(reply, recent, userText);
+  const banter = banterIssue(reply, recent, userText, Date.now(), phraseHistory);
   if (banter) return banter;
   if (previous && tapiAdviceEnding(previous) && tapiAdviceEnding(reply)) return 'penutup tapi dengan saran berulang';
   const last = recent.filter(x => x.role === 'assistant' && !x.media).at(-1);
@@ -77,6 +77,8 @@ export class Bot {
   async ask(jid, text, media = null, options = {}) {
     const prompt = buildPrompt({ jid, query: text, memory: this.memory, relationship: this.relationship, life: this.life, story: this.story, style: this.style });
     const recent = this.memory.history(jid);
+    const phraseHistory = this.memory.history(jid, 200);
+    const phraseReminder = hasGotchaHistory(phraseHistory) ? '\nRiwayat lintas sesi menunjukkan framing gotcha sudah pernah dipakai. Untuk balasan ini jangan mengulang frasa nah/tuh kan atau menggantinya dengan kesimpulan bahwa user ketahuan/mengaku; pilih fungsi reaksi lain.' : '';
     const shortAnswer = !media && !options.proactive && isShortAnswerToQuestion(text, recent);
     const history = toGeminiHistory(recent);
     const lastTime = recent.at(-1)?.createdAt;
@@ -87,17 +89,17 @@ export class Bot {
     const imageRule = !media && !options.proactive && this.imageSearch?.enabled
       ? '\nBila user jelas meminta contoh visual atau foto nyata sangat membantu memahami objek yang dibahas, boleh tambahkan satu baris terakhir: [[search_image: query foto yang spesifik]]. Jangan gunakan untuk basa-basi, orang, topik seksual/eksplisit, atau setiap balasan. Cari foto referensi, bukan mengaku itu foto pribadimu. Query harus menyebut objek sebenarnya, bukan instruksi. Teks balasan harus tetap masuk akal jika foto tidak ditemukan. Jangan letakkan penanda ini dalam bubble ||.'
       : '';
-    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}${imageRule}`;
+    const system = `${prompt}\n\n${timing}${shortAnswer ? '\nUser baru menjawab singkat pertanyaanmu. Mulai dengan komentar personal; tidak perlu memaksa pertanyaan lanjutan.' : ''}${lightReading ? `\n${LIGHT_READING_VARIANT}` : ''}${imageRule}${phraseReminder}`;
     const userContext = batch ? `User mengirim ${options.messages.length} pesan beruntun, urutan lama ke baru. Pertimbangkan SEMUANYA sebagai satu konteks; pesan terakhir melengkapi yang sebelumnya, kecuali jelas mengoreksinya. Tidak perlu menjawab satu-satu atau membuat daftar.\n\n${options.messages.map((message, i) => `[Pesan ${i + 1}]\n${message}`).join('\n\n')}` : text;
     const parts = [{ text: media ? `Tanggapi ${media.kind === 'image' ? 'foto' : 'sticker'} ini sesuai konteks dan bobot pesannya. Untuk sticker santai cukup reaksi ringan; jangan membuka roasting baru atau mengaitkannya dengan stereotip sosial/gaya hidup. Jangan pakai emoji. Caption/konteks: ${text || '(tidak ada)'}` : userContext }];
     if (media) parts.push({ inlineData: { mimeType: media.mimeType, data: media.buffer.toString('base64') } });
     let result = await this.gemini.generate({ system, history, parts });
-    const issue = styleIssue(extractImageRequest(result).text, recent, text, shortAnswer);
+    const issue = styleIssue(extractImageRequest(result).text, recent, text, shortAnswer, phraseHistory);
     if (issue) {
       this.logger.info({ issue }, 'reply kena filter gaya; regenerasi satu kali');
       try {
         const retry = await this.gemini.generate({ system: `${system}\n\nBalasan barusan bermasalah: ${issue}. Tulis ulang dengan struktur lain yang alami, reaksi spesifik tanpa mengulang kata user. Tidak harus bertanya; jangan pakai penutup kesimpulan template.`, history, parts });
-        if (retry.trim() && !styleIssue(extractImageRequest(retry).text, recent, text, shortAnswer)) result = retry;
+        if (retry.trim() && !styleIssue(extractImageRequest(retry).text, recent, text, shortAnswer, phraseHistory)) result = retry;
       } catch (error) { this.logger.warn({ error: error.message }, 'regenerasi gagal, memakai balasan pertama'); }
     }
     if (shortAnswer && startsWithBareQuestion(extractImageRequest(result).text)) {
