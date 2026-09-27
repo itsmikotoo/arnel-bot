@@ -9,6 +9,7 @@ import { Memory } from '../src/memory.js';
 import { Life } from '../src/life.js';
 import { Relationship } from '../src/relationship.js';
 import { gotchaPhrase } from '../src/banter.js';
+import { Style, languageProfile } from '../src/style.js';
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arnel-conversation-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -147,4 +148,36 @@ test('topic exhaustion uses current life and story context, without a canned coo
   assert.match(requests[0].system, /buku pinjaman belum dikembalikan/);
   assert.match(requests[0].system, /membiarkan percakapan selesai/);
   assert.match(requests[0].system, /kata pendek seperti habis tidak otomatis/);
+});
+test('language profile learns observed spelling from target output, not the other speaker', () => {
+  const profile = languageProfile([
+    { input: 'bahwasanya formalbanget', output: 'capeknyo capeknyo nian' },
+    { input: 'formalbanget lagi', output: 'capeknyo nian' },
+    { content: 'Gue udh pulang.' },
+  ]);
+  assert.deepEqual(profile.frequent, [['capeknyo', 2], ['nian', 2]]);
+  assert.equal(profile.count, 3);
+  assert.equal(profile.bareEndingPercent, 67);
+  assert.doesNotMatch(JSON.stringify(profile), /formalbanget|bahwasanya|\bgue\b/i);
+  assert.equal(languageProfile([]), null);
+});
+test('existing imported styles guide register and update after reimport or restart', async t => {
+  const { bot, requests } = fixture(t);
+  bot.store.write('style_examples', { samples: [{ content: 'capeknyo nian' }, { content: 'ngantuknyo nian' }] });
+  bot.style = new Style(bot.store);
+  const before = bot.style.languageContext();
+  assert.match(before, /capeknyo/);
+  assert.equal(new Style(new Store(bot.store.dir)).languageContext(), before);
+  await bot.ask('jid', 'lagi apa');
+  assert.match(requests[0].system, /ejaan personal\/regional/);
+  assert.match(requests[0].system, /capeknyo/);
+  assert.doesNotMatch(requests[0].system, /Belum ada gaya impor/);
+  bot.store.write('style_examples', { samples: [{ content: 'emg gt' }, { content: 'emg gpp' }] });
+  assert.doesNotMatch(bot.style.languageContext(), /capeknyo/);
+  assert.match(bot.style.languageContext(), /emg/);
+  bot.store.write('style_examples', { samples: [] });
+  assert.equal(bot.style.languageContext(), '');
+  await bot.ask('jid', 'lagi apa');
+  assert.match(requests.at(-1).system, /Belum ada gaya impor/);
+  assert.match(requests.at(-1).system, /Kata ganti tetap aku\/kamu/);
 });
