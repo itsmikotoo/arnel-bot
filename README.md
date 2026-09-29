@@ -1,4 +1,4 @@
-# Arnel Bot v3
+#  v3
 
 Rewrite ringan Arnel Bot untuk Debian: Node.js 20+, Baileys 7, Gemini REST. Satu proses saja memakai direktori data yang sama. Karakter Arnel adalah fiksi; bot tidak mengklaim manusia nyata saat ditanya langsung. Tidak ada dashboard atau server HTTP dalam v3.
 
