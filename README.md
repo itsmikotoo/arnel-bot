@@ -1,4 +1,4 @@
-# Arnel Bot — WhatsApp Persona Chatbot
+# kaizen — native impersonate
 
 Bot WhatsApp dengan persona "Arnel Latasha" menggunakan `whatsapp-web.js` + Claude API + SQLite untuk histori percakapan.
 
